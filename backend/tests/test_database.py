@@ -9,8 +9,8 @@ def test_empty_database_migrates_and_seeds(tmp_path) -> None:
     connection = connect(database)
     try:
         assert schema_version(connection) == 0
-        assert migrate(connection) == 1
-        assert schema_version(connection) == 1
+        assert migrate(connection) == 5
+        assert schema_version(connection) == 5
         assert connection.execute("SELECT COUNT(*) FROM currencies").fetchone()[0] == 13
         assert connection.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 7
         assert_integrity(connection)
@@ -22,8 +22,8 @@ def test_empty_database_migrates_and_seeds(tmp_path) -> None:
 def test_migration_is_idempotent(tmp_path) -> None:
     connection = connect(tmp_path / "test.sqlite3")
     try:
-        assert migrate(connection) == 1
-        assert migrate(connection) == 1
+        assert migrate(connection) == 5
+        assert migrate(connection) == 5
         assert connection.execute("SELECT COUNT(*) FROM currencies").fetchone()[0] == 13
     finally:
         connection.close()
@@ -39,9 +39,9 @@ def test_write_transaction_rolls_back(tmp_path) -> None:
                     "INSERT INTO currencies(code, name, symbol, minor_unit) VALUES (?, ?, ?, ?)",
                     ("BAD", "Bad", "?", 99),
                 )
-        count = connection.execute(
-            "SELECT COUNT(*) FROM currencies WHERE code = 'BAD'"
-        ).fetchone()[0]
+        count = connection.execute("SELECT COUNT(*) FROM currencies WHERE code = 'BAD'").fetchone()[
+            0
+        ]
         assert count == 0
     finally:
         connection.close()

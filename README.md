@@ -28,6 +28,12 @@ python tasks.py migrate
 python tasks.py cleanup
 ```
 
+Reset password dari operator lokal:
+
+```powershell
+python tasks.py admin reset-password <username> [password-baru]
+```
+
 ## Menjalankan fondasi
 
 Backend API:
