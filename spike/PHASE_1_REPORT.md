@@ -17,6 +17,8 @@
 | pillow-heif | 1.1.1 — PASS |
 | `pip check` | PASS; tidak ada dependency rusak |
 | `python -m compileall -q spike` | PASS |
+| NVIDIA GPU | GeForce RTX 2050 detected |
+| Installed Paddle CUDA build | `False`; current environment remains CPU-only |
 
 ## Prototype yang dibuat
 
@@ -42,6 +44,36 @@ low_quality=0/50
 Fixture parser 50/50 bukan klaim akurasi OCR nyata karena memakai baris OCR deterministik dari manifest. Smoke test PaddleOCR berhasil menginisialisasi model PP-OCRv6 medium CPU dan menghasilkan output OCR; satu gambar juga terbukti mengembalikan teks yang benar.
 
 GPU tidak mengubah kontrak aplikasi: preprocessing tetap CPU, CPU tetap jalur fallback, dan environment GPU harus menggunakan wheel PaddlePaddle yang cocok dengan driver/CUDA. Uji GPU dijalankan terpisah dengan `$env:SPIKE_OCR_DEVICE = "gpu:0"`.
+
+Pada mesin eksekusi tersedia NVIDIA GeForce RTX 2050. Environment aplikasi
+utama tetap memasang build CPU (`paddle.is_compiled_with_cuda() == False`);
+benchmark GPU berikut dijalankan pada environment terpisah dengan wheel GPU.
+
+## Benchmark GPU aktual
+
+Benchmark dilakukan pada 19 November 2026 menggunakan environment terpisah di
+drive D, PaddlePaddle GPU 3.2.0 CUDA 12.6, dan 10 gambar preprocessing yang
+sama:
+
+| Metrik | CPU | GPU `gpu:0` |
+|---|---:|---:|
+| Inisialisasi model | 9.001 s | 14.500 s |
+| Waktu OCR per gambar | 189.389 s (1 sampel) | 0.831 s rata-rata |
+| Median OCR per gambar | 189.389 s | 0.536 s |
+| Throughput | 0.005 gambar/s | 1.204 gambar/s |
+| Device aktif | CPU | RTX 2050, compute capability 8.6 |
+
+GPU sekitar **228× lebih cepat** berdasarkan perbandingan mean CPU satu
+gambar dengan mean GPU 10 gambar. Angka CPU dan GPU bukan benchmark statistik
+sempurna karena jumlah sampel CPU dibatasi oleh durasi ekstrem; gunakan
+benchmark ulang setelah konfigurasi runtime final.
+
+Paddle mengeluarkan warning bahwa build terkompilasi dengan cuDNN 9.9 namun
+runtime mendeteksi cuDNN 9.5. GPU tetap berjalan, tetapi environment GPU harus
+diselaraskan sebelum production. Hasil parser pada benchmark ini adalah
+`total_accuracy=0.0` dan `date_accuracy=1.0`; ini menunjukkan parser spike
+belum toleran terhadap format nominal OCR mentah, bukan bukti bahwa GPU gagal.
+Karena itu quality gate akurasi OCR production belum lulus.
 
 ## Batasan dan tindak lanjut
 

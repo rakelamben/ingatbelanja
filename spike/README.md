@@ -55,3 +55,14 @@ $env:SPIKE_OCR_DEVICE = "gpu:0"
 $env:SPIKE_FULL_OCR = "1"
 python spike\run_spike.py
 ```
+
+Benchmark waktu CPU/GPU pada sampel yang sama:
+
+```powershell
+$env:SPIKE_BENCHMARK_COUNT = "10"
+$env:SPIKE_OCR_DEVICE = "gpu:0"
+python spike\benchmark_ocr.py
+```
+
+`benchmark_ocr.py` menulis hasil JSON ke `spike\artifacts\`. Benchmark hanya
+mengukur performa OCR dan bukan quality gate parser production.
