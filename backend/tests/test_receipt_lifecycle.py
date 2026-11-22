@@ -69,3 +69,51 @@ def test_detail_patch_stale_delete_restore_and_report(tmp_path):
     assert deleted.status_code == 204
     assert hidden.status_code == 404
     assert restored.status_code == 200
+
+
+def test_recent_items_are_ordered_by_input_time_and_include_category(tmp_path):
+    app = make_app(tmp_path)
+    client, csrf, ledger_id = register(app)
+
+    older = client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/manual",
+        json={
+            "purchased_on": "2026-11-18",
+            "amount_minor": 12500,
+            "merchant_name": "Toko Lama",
+            "category_id": "system-food",
+        },
+        headers={"X-CSRF-Token": csrf},
+    ).json
+    newer = client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/manual",
+        json={
+            "purchased_on": "2026-11-17",
+            "amount_minor": 23000,
+            "merchant_name": "Toko Baru",
+            "category_id": "system-transport",
+        },
+        headers={"X-CSRF-Token": csrf},
+    ).json
+
+    connection = connect(app.config["SETTINGS"].database_path)
+    try:
+        connection.execute(
+            "UPDATE line_items SET created_at = ? WHERE receipt_id = ?",
+            ("2026-11-20T10:00:00Z", older["id"]),
+        )
+        connection.execute(
+            "UPDATE line_items SET created_at = ? WHERE receipt_id = ?",
+            ("2026-11-20T11:00:00Z", newer["id"]),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    response = client.get(f"/api/v1/ledgers/{ledger_id}/recent-items?limit=1")
+
+    assert response.status_code == 200
+    assert len(response.json["items"]) == 1
+    assert response.json["items"][0]["receipt_id"] == newer["id"]
+    assert response.json["items"][0]["category_name"] == "Transportasi"
+    assert response.json["items"][0]["amount_ledger_minor"] == 23000

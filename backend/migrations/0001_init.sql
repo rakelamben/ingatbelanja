@@ -270,9 +270,7 @@ INSERT INTO currencies (code, name, symbol, minor_unit) VALUES
 
 INSERT INTO categories (id, ledger_id, name, name_norm, is_system, created_at) VALUES
     ('system-food', NULL, 'Makanan', 'makanan', 1, '2026-01-01T00:00:00Z'),
-    ('system-drink', NULL, 'Minuman', 'minuman', 1, '2026-01-01T00:00:00Z'),
     ('system-transport', NULL, 'Transportasi', 'transportasi', 1, '2026-01-01T00:00:00Z'),
     ('system-shopping', NULL, 'Belanja', 'belanja', 1, '2026-01-01T00:00:00Z'),
     ('system-bills', NULL, 'Tagihan', 'tagihan', 1, '2026-01-01T00:00:00Z'),
-    ('system-health', NULL, 'Kesehatan', 'kesehatan', 1, '2026-01-01T00:00:00Z'),
-    ('system-other', NULL, 'Lainnya', 'lainnya', 1, '2026-01-01T00:00:00Z');
+    ('system-health', NULL, 'Kesehatan', 'kesehatan', 1, '2026-01-01T00:00:00Z');

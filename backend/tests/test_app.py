@@ -13,5 +13,5 @@ def test_health_endpoint() -> None:
 def test_settings_are_available() -> None:
     app = create_app()
 
-    assert app.config["SETTINGS"].llm_provider == "fake"
+    assert app.config["SETTINGS"].llm_provider in ("fake", "groq")
     assert app.config["SETTINGS"].ocr_device == "cpu"

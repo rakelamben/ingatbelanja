@@ -112,7 +112,7 @@ def register():
             connection.execute(
                 "INSERT INTO ledgers(id, name, type, currency_code, owner_id, created_at) "
                 "VALUES (?, ?, 'personal', 'IDR', ?, ?)",
-                (ledger_id, f"Buku {body.display_name or body.username}", user_id, now),
+                (ledger_id, f"Buku Pribadi", user_id, now),
             )
             connection.execute(
                 "INSERT INTO ledger_members(ledger_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)",

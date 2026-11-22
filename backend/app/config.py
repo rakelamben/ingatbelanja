@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     worker_cycle_s: float = 5.0
     soft_delete_days: int = 30
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    backup_keep: int = 7
     limit_chat_per_day: int = 40
     llm_max_output_tokens: int = 800
     llm_max_tool_calls: int = 5

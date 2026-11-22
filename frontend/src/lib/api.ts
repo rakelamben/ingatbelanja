@@ -2,7 +2,78 @@ export type User = { id: string; username: string; display_name: string | null }
 export type Session = { user: User; csrf_token: string; personal_ledger_id: string; ai_notice_acknowledged: boolean };
 export type Ledger = { id: string; name: string; type: "personal" | "tracker"; currency: string; role: "owner" | "member"; member_count: number };
 export type Receipt = { id: string; status: string; merchant_name: string | null; purchased_on: string | null; currency: string; total_minor: number | null; total_ledger_minor: number | null; created_by?: string; updated_at: string };
+export type RecentExpenseItem = {
+  id: string;
+  receipt_id: string;
+  category_id: string | null;
+  category_name: string | null;
+  name: string;
+  created_at: string;
+  amount_minor: number | null;
+  amount_ledger_minor: number | null;
+  currency: string;
+  ledger_currency: string;
+};
 export type Summary = { total_minor: number; count: number; by_category: { name: string; amount_minor: number; share_bp: number }[]; by_day: { date: string; amount_minor: number }[]; top_merchants: { name: string; amount_minor: number; count: number }[]; compare: { diff_minor: number; pct_bp: number | null }; currency: string };
+
+export type ReceiptItem = {
+  id?: string;
+  name: string;
+  qty_milli: number;
+  unit_price_minor?: number | null;
+  amount_minor: number;
+  category_id?: string | null;
+  category_name?: string | null;
+};
+
+export type ReceiptDetail = {
+  id: string;
+  ledger_id: string;
+  status: "confirmed" | "processing" | "failed" | "needs_review" | string;
+  source: "photo" | "manual";
+  merchant_name: string | null;
+  purchased_on: string | null;
+  currency: string;
+  total_minor: number | null;
+  total_ledger_minor: number | null;
+  fx_rate: string | null;
+  fx_date: string | null;
+  fx_source: string | null;
+  issues: string[];
+  note: string | null;
+  created_by: { id: string; username: string; display_name: string | null };
+  created_at: string;
+  updated_at: string;
+  items: ReceiptItem[];
+};
+
+export type Category = {
+  id: string;
+  name: string;
+  is_system: boolean;
+  ledger_id: string | null;
+};
+
+export type ReceiptPatchPayload = {
+  expected_updated_at: string;
+  merchant_name?: string | null;
+  purchased_on?: string | null;
+  currency?: string | null;
+  total_minor?: number | null;
+  tax_minor?: number | null;
+  service_minor?: number | null;
+  discount_minor?: number | null;
+  note?: string | null;
+  fx_rate?: string | null;
+  items?: {
+    id?: string;
+    name: string;
+    qty_milli?: number;
+    unit_price_minor?: number | null;
+    amount_minor: number;
+    category_id?: string | null;
+  }[];
+};
 
 export class ApiError extends Error {
   status: number;
@@ -57,6 +128,17 @@ export const api = {
   ledgers: () => request<{ ledgers: Ledger[] }>("/ledgers"),
   ledger: (id: string) => request<Ledger & { members: User[] }>(`/ledgers/${id}`),
   receipts: (id: string, query = "") => request<{ items: Receipt[]; next_cursor: string | null }>(`/ledgers/${id}/receipts${query}`),
+  recentExpenseItems: (id: string, limit = 5) =>
+    request<{ items: RecentExpenseItem[] }>(
+      `/ledgers/${id}/recent-items?limit=${encodeURIComponent(limit)}`,
+    ),
+  receipt: (receiptId: string) => request<ReceiptDetail>(`/receipts/${receiptId}`),
+  patchReceipt: (receiptId: string, payload: ReceiptPatchPayload) => request<ReceiptDetail>(`/receipts/${receiptId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  confirmReceipt: (receiptId: string) => request<{ id: string; status: string; updated_at: string }>(`/receipts/${receiptId}/confirm`, { method: "POST" }),
+  reprocessReceipt: (receiptId: string) => request<{ id: string; status: string }>(`/receipts/${receiptId}/reprocess`, { method: "POST" }),
+  deleteReceipt: (receiptId: string) => request<void>(`/receipts/${receiptId}`, { method: "DELETE" }),
+  categories: (ledgerId: string) => request<{ categories: Category[] }>(`/ledgers/${ledgerId}/categories`),
+  receiptImageUrl: (receiptId: string, kind: "original" | "processed" | "thumb" = "processed") => `${API_PREFIX}/receipts/${encodeURIComponent(receiptId)}/image/${kind}`,
   manualReceipt: (id: string, payload: unknown) => request<Receipt>(`/ledgers/${id}/receipts/manual`, { method: "POST", body: JSON.stringify(payload) }),
   uploadPhoto: async (id: string, file: File, note = "", isHandwritten = false) => {
     const form = new FormData(); form.append("file", file); if (note) form.append("note", note); form.append("is_handwritten", String(isHandwritten));
@@ -69,6 +151,7 @@ export const api = {
   budgetStatus: (id: string, period: string) => request<{ limit_minor: number | null; spent_minor: number; ratio_bp: number | null; level: string }>(`/ledgers/${id}/budgets/status?period=${encodeURIComponent(period)}`),
   putBudget: (id: string, period: string, limit_minor: number) => request<{ limit_minor: number }>(`/ledgers/${id}/budgets/${period}`, { method: "PUT", body: JSON.stringify({ limit_minor }) }),
   activity: (id: string) => request<{ items: { action: string; entity_type: string; username: string; created_at: string }[] }>(`/ledgers/${id}/activity`),
+  chatThreads: () => request<{ threads: { id: string; title: string; created_at: string; updated_at: string }[] }>("/chat/threads"),
   createChatThread: () => request<{ id: string; title: string }>("/chat/threads", { method: "POST" }),
   chatMessages: (id: string) => request<{ messages: { id: string; role: "user" | "assistant"; content: string; blocks?: { title: string; columns: string[]; rows: string[][] }[]; verified: boolean }[] }>(`/chat/threads/${id}/messages`),
   sendChat: (id: string, content: string) => request<{ id: string; content: string; blocks: { title: string; columns: string[]; rows: string[][] }[]; verified: boolean }>(`/chat/threads/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }),

@@ -208,6 +208,34 @@ def list_receipts(ledger_id: str):
         connection.close()
 
 
+@receipt_lifecycle_api.get("/ledgers/<ledger_id>/recent-items")
+@require_auth
+def list_recent_items(ledger_id: str):
+    connection = connect(current_app.config["SETTINGS"].database_path)
+    try:
+        require_member(connection, ledger_id, _uid())
+        try:
+            limit = int(request.args.get("limit", 5))
+        except ValueError as error:
+            raise ProblemError(422, "LIMIT_INVALID", "Limit must be an integer") from error
+        limit = min(max(limit, 1), 20)
+        rows = connection.execute(
+            "SELECT li.id, li.receipt_id, li.category_id, c.name AS category_name, "
+            "li.name, li.created_at, li.amount_minor, li.amount_ledger_minor, "
+            "r.currency_code AS currency, l.currency_code AS ledger_currency "
+            "FROM line_items li "
+            "JOIN receipts r ON r.id = li.receipt_id "
+            "JOIN ledgers l ON l.id = r.ledger_id "
+            "LEFT JOIN categories c ON c.id = li.category_id "
+            "WHERE r.ledger_id = ? AND r.status = 'confirmed' AND r.deleted_at IS NULL "
+            "ORDER BY li.created_at DESC, li.id DESC LIMIT ?",
+            (ledger_id, limit),
+        ).fetchall()
+        return jsonify({"items": [dict(row) for row in rows]})
+    finally:
+        connection.close()
+
+
 @receipt_lifecycle_api.get("/receipts/<receipt_id>")
 @require_auth
 def get_receipt(receipt_id: str):

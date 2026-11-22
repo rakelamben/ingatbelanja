@@ -1,0 +1,148 @@
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ChatPage } from "./ChatPage";
+import { api } from "../lib/api";
+import { SessionProvider } from "../context/SessionContext";
+
+vi.mock("../lib/api", async () => {
+  const actual = await vi.importActual("../lib/api");
+  return {
+    ...actual,
+    api: {
+      ...((actual as Record<string, unknown>).api as Record<string, unknown>),
+      chatThreads: vi.fn(),
+      chatMessages: vi.fn(),
+      createChatThread: vi.fn(),
+      sendChat: vi.fn(),
+      ackAiNotice: vi.fn(),
+    },
+  };
+});
+
+const mockSession = {
+  user: { id: "user-1", username: "tester", display_name: "Tester" },
+  csrf_token: "csrf-test",
+  personal_ledger_id: "ledger-personal",
+  ai_notice_acknowledged: true,
+};
+
+describe("ChatPage (Sprint D)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("loads existing thread and message history on mount", async () => {
+    vi.mocked(api.chatThreads).mockResolvedValue({
+      threads: [
+        {
+          id: "th-existing",
+          title: "Percakapan Lama",
+          created_at: "2026-11-20T00:00:00Z",
+          updated_at: "2026-11-20T00:00:00Z",
+        },
+      ],
+    });
+    vi.mocked(api.chatMessages).mockResolvedValue({
+      messages: [
+        {
+          id: "msg-1",
+          role: "user",
+          content: "Berapa total belanja?",
+          verified: false,
+        },
+        {
+          id: "msg-2",
+          role: "assistant",
+          content: "Total belanja adalah Rp 150.000.",
+          verified: true,
+        },
+      ],
+    });
+
+    render(
+      <SessionProvider initialSession={mockSession}>
+        <ChatPage />
+      </SessionProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Berapa total belanja?")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Total belanja adalah Rp 150.000.")).toBeTruthy();
+    expect(screen.getByText("Terverifikasi dari data aplikasi")).toBeTruthy();
+    expect(api.createChatThread).not.toHaveBeenCalled();
+  });
+
+  it("creates a new thread when user clicks Baru button", async () => {
+    vi.mocked(api.chatThreads).mockResolvedValue({
+      threads: [
+        {
+          id: "th-1",
+          title: "Percakapan 1",
+          created_at: "2026-11-20T00:00:00Z",
+          updated_at: "2026-11-20T00:00:00Z",
+        },
+      ],
+    });
+    vi.mocked(api.chatMessages).mockResolvedValue({ messages: [] });
+    vi.mocked(api.createChatThread).mockResolvedValue({
+      id: "th-fresh",
+      title: "Percakapan baru",
+    });
+
+    render(
+      <SessionProvider initialSession={mockSession}>
+        <ChatPage />
+      </SessionProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /baru/i })).toBeTruthy();
+    });
+
+    const newBtn = screen.getByRole("button", { name: /baru/i });
+    fireEvent.click(newBtn);
+
+    await waitFor(() => {
+      expect(api.createChatThread).toHaveBeenCalledTimes(1);
+    });
+    expect(localStorage.getItem("ib_chat_thread_id")).toBe("th-fresh");
+  });
+
+  it("sends message and renders AI response with verified badge", async () => {
+    vi.mocked(api.chatThreads).mockResolvedValue({
+      threads: [{ id: "th-1", title: "Chat", created_at: "", updated_at: "" }],
+    });
+    vi.mocked(api.chatMessages).mockResolvedValue({ messages: [] });
+    vi.mocked(api.sendChat).mockResolvedValue({
+      id: "resp-1",
+      content: "Pengeluaran terbesar di kategori Makanan.",
+      verified: true,
+      blocks: [],
+    });
+
+    render(
+      <SessionProvider initialSession={mockSession}>
+        <ChatPage />
+      </SessionProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/tanyakan pola pengeluaranmu/i)).toBeTruthy();
+    });
+
+    const input = screen.getByPlaceholderText(/tanyakan pola pengeluaranmu/i);
+    fireEvent.change(input, { target: { value: "Kategori terbesar apa?" } });
+
+    const sendBtn = screen.getByRole("button", { name: "Kirim" });
+    fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Pengeluaran terbesar di kategori Makanan.")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Terverifikasi dari data aplikasi")).toBeTruthy();
+  });
+});

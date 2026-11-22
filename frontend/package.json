@@ -15,6 +15,7 @@
     "e2e:chromium": "playwright test --project=chromium"
   },
   "dependencies": {
+    "@sargamicons/react": "^1.6.7",
     "@vitejs/plugin-react": "latest",
     "react": "latest",
     "react-dom": "latest",
