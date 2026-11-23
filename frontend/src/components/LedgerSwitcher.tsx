@@ -1,34 +1,58 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { api, type Ledger } from "../lib/api";
-import { ledgerPath } from "../lib/routes";
 
-export function LedgerSwitcher({ activeId }: { activeId?: string }) {
-  const navigate = useNavigate();
+type LedgerSwitcherProps = {
+  activeId: string;
+  variant: "home" | "analytics";
+  onChange: (ledgerId: string) => void;
+  className?: string;
+};
+
+export function LedgerSwitcher({ activeId, variant, onChange, className }: LedgerSwitcherProps) {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     api
       .ledgers()
-      .then((result) => setLedgers(result.ledgers))
-      .catch(() => setLedgers([]));
+      .then((result) => {
+        if (!cancelled) setLedgers(result.ledgers);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Daftar buku tidak dapat dimuat.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
-    <div className="ledger-switcher px-2 py-2">
+    <div
+      className={["ledger-switcher", `ledger-switcher--${variant}`, className]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <select
-        id="active-ledger-select"
-        className="bg-(--color-surface)/20"
-        value={activeId ?? ""}
-        onChange={(event) => navigate(ledgerPath(event.target.value))}
-        aria-label="Pilih buku aktif"
+        id={`active-ledger-select-${variant}`}
+        value={activeId}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={variant === "home" ? "Pilih buku untuk beranda" : "Pilih buku untuk analitik"}
+        disabled={loading || Boolean(error) || ledgers.length === 0}
       >
+        {ledgers.length === 0 && <option value="">Tidak ada buku tersedia</option>}
         {ledgers.map((ledger) => (
           <option className="text-black" key={ledger.id} value={ledger.id}>
             {ledger.name}
           </option>
         ))}
       </select>
+      {error && <p role="alert">{error}</p>}
     </div>
   );
 }

@@ -80,6 +80,14 @@ class PaddleOcrEngine:
         return lines
 
 
+def build_ocr_engine(settings) -> OcrEngine:
+    if settings.ocr_engine == "fake":
+        return FakeOcrEngine()
+    if settings.ocr_engine == "paddle":
+        return PaddleOcrEngine(settings)
+    raise ValueError(f"Unsupported OCR_ENGINE: {settings.ocr_engine}")
+
+
 def grouped_rows(lines: list[OcrLine]) -> list[dict]:
     if not lines:
         return []

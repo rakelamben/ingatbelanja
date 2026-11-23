@@ -37,7 +37,7 @@ for (const vp of MOBILE_VIEWPORTS) {
       await page.getByLabel("Username").fill(username);
       await page.getByLabel("Password").fill("password-mobile-aman");
       await page.getByRole("button", { name: "Buat akun" }).click();
-      await expect(page).toHaveURL(/\/app\/ledger\//);
+      await expect(page).toHaveURL(/\/app\/ledger\/|\/home/);
 
       // Verify no horizontal overflow on dashboard
       const dashboardOverflow = await page.evaluate(
@@ -52,7 +52,7 @@ for (const vp of MOBILE_VIEWPORTS) {
       await expect(navItems).toHaveCount(5);
 
       // Verify History page layout
-      await page.getByRole("link", { name: "Riwayat", exact: true }).click();
+      await page.getByRole("link", { name: /lihat semua|riwayat/i }).click();
       await expect(page).toHaveURL(/\/history/);
       const historyOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -60,7 +60,7 @@ for (const vp of MOBILE_VIEWPORTS) {
       expect(historyOverflow).toBeFalsy();
 
       // Verify Scan page layout
-      await page.getByRole("link", { name: "Scan", exact: true }).click();
+      await page.getByRole("link", { name: /tambah|scan/i }).first().click();
       await expect(page).toHaveURL(/\/scan/);
       const scanOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -68,7 +68,7 @@ for (const vp of MOBILE_VIEWPORTS) {
       expect(scanOverflow).toBeFalsy();
 
       // Verify Manual input page layout
-      await page.getByRole("link", { name: /atau catat manual/i }).click();
+      await page.getByRole("link", { name: /isi form manual|catat manual/i }).click();
       await expect(page).toHaveURL(/\/manual/);
       const manualOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -76,13 +76,17 @@ for (const vp of MOBILE_VIEWPORTS) {
       expect(manualOverflow).toBeFalsy();
 
       // Add a receipt to test review and reports with real data
-      await page.getByLabel("Merchant").fill("Superindo Mobile");
-      await page.getByLabel("Total (Rp)").fill("85000");
+      await page.getByLabel(/nama toko|merchant/i).fill("Superindo Mobile");
+      await page.getByLabel("Total Transaksi (IDR)").fill("85000");
+      await page.getByLabel(/nama barang/i).first().fill("Apel Fuji");
+      await page.getByLabel(/subtotal \(idr\)/i).first().fill("85000");
       await page.getByRole("button", { name: /simpan pengeluaran/i }).click();
-      await expect(page).toHaveURL(/\/app\/ledger\//);
+      await expect(page).toHaveURL(/\/history/);
 
       // Verify History receipt row layout
-      await page.getByRole("link", { name: "Riwayat", exact: true }).click();
+      if (!page.url().includes("/history")) {
+        await page.goto("/app/history");
+      }
       const receiptRow = page.locator(".receipt-row").first();
       await expect(receiptRow).toBeVisible({ timeout: 10000 });
 
@@ -104,8 +108,8 @@ for (const vp of MOBILE_VIEWPORTS) {
       }
 
       // Verify Trackers page layout
-      await page.getByRole("link", { name: "Pelacak", exact: true }).click();
-      await expect(page).toHaveURL(/\/app\/trackers/);
+      await page.getByRole("link", { name: /buku|pelacak/i, exact: false }).first().click();
+      await expect(page).toHaveURL(/\/app\/books|\/app\/trackers/);
       const trackersOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       );

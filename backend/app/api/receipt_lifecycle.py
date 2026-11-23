@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..db import connect, tx
 from ..errors import ProblemError
+from ..money import convert_minor, validate_rate
 from ..security import require_auth
 from ..utils import new_id, normalize_text, utc_now
 from .ledger import require_member
@@ -21,9 +22,9 @@ class ItemPatch(BaseModel):
 
     id: str | None = None
     name: str = Field(min_length=1, max_length=160)
-    qty_milli: int = Field(default=1000, gt=0)
-    unit_price_minor: int | None = None
-    amount_minor: int = Field(ge=0)
+    qty_milli: int = Field(default=1000, gt=0, le=9_223_372_036_854_775_807)
+    unit_price_minor: int | None = Field(default=None, ge=0, le=9_223_372_036_854_775_807)
+    amount_minor: int = Field(ge=0, le=9_223_372_036_854_775_807)
     category_id: str | None = None
 
 
@@ -34,7 +35,7 @@ class ReceiptPatch(BaseModel):
     merchant_name: str | None = Field(default=None, max_length=160)
     purchased_on: date | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
-    total_minor: int | None = Field(default=None, ge=0)
+    total_minor: int | None = Field(default=None, ge=0, le=9_223_372_036_854_775_807)
     tax_minor: int | None = Field(default=None, ge=0)
     service_minor: int | None = Field(default=None, ge=0)
     discount_minor: int | None = Field(default=None, ge=0)
@@ -219,19 +220,41 @@ def list_recent_items(ledger_id: str):
         except ValueError as error:
             raise ProblemError(422, "LIMIT_INVALID", "Limit must be an integer") from error
         limit = min(max(limit, 1), 20)
+        cursor = _decode_cursor(request.args.get("cursor"))
+        clauses = [
+            "r.ledger_id = ?",
+            "r.status = 'confirmed'",
+            "r.deleted_at IS NULL",
+        ]
+        params: list = [ledger_id]
+        if cursor:
+            clauses.append(
+                "(li.created_at < ? OR (li.created_at = ? AND li.id < ?))"
+            )
+            params.extend([cursor[0], cursor[0], cursor[1]])
+        params.append(limit + 1)
         rows = connection.execute(
             "SELECT li.id, li.receipt_id, li.category_id, c.name AS category_name, "
             "li.name, li.created_at, li.amount_minor, li.amount_ledger_minor, "
-            "r.currency_code AS currency, l.currency_code AS ledger_currency "
+            "r.purchased_on, r.currency_code AS currency, l.currency_code AS ledger_currency "
             "FROM line_items li "
             "JOIN receipts r ON r.id = li.receipt_id "
             "JOIN ledgers l ON l.id = r.ledger_id "
             "LEFT JOIN categories c ON c.id = li.category_id "
-            "WHERE r.ledger_id = ? AND r.status = 'confirmed' AND r.deleted_at IS NULL "
+            f"WHERE {' AND '.join(clauses)} "
             "ORDER BY li.created_at DESC, li.id DESC LIMIT ?",
-            (ledger_id, limit),
+            params,
         ).fetchall()
-        return jsonify({"items": [dict(row) for row in rows]})
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return jsonify(
+            {
+                "items": [dict(row) for row in rows],
+                "next_cursor": _cursor(rows[-1]["created_at"], rows[-1]["id"])
+                if has_more
+                else None,
+            }
+        )
     finally:
         connection.close()
 
@@ -280,11 +303,68 @@ def patch_receipt(receipt_id: str):
                 )
             if row["updated_at"] != payload.expected_updated_at:
                 raise ProblemError(409, "STALE_EDIT", "Receipt changed since it was loaded")
+            currency = payload.currency.upper() if payload.currency else row["currency_code"]
+            purchased_on = (
+                payload.purchased_on.isoformat()
+                if payload.purchased_on
+                else row["purchased_on"]
+            )
+            total_minor = (
+                payload.total_minor if payload.total_minor is not None else row["total_minor"]
+            )
+            currency_rows = connection.execute(
+                "SELECT code, minor_unit FROM currencies WHERE code IN (?, ?)",
+                (currency, row["ledger_currency"]),
+            ).fetchall()
+            currency_units = {item["code"]: item["minor_unit"] for item in currency_rows}
+            if currency not in currency_units:
+                raise ProblemError(422, "CURRENCY_UNKNOWN", "Currency is not supported")
+            if row["ledger_currency"] not in currency_units:
+                raise ProblemError(422, "CURRENCY_UNKNOWN", "Book currency is not supported")
+            fx_rate = (
+                payload.fx_rate
+                if payload.fx_rate is not None
+                else (row["fx_rate"] if currency == row["currency_code"] else None)
+            )
+            fx_date = row["fx_date"]
+            fx_source = row["fx_source"]
+            if currency == row["ledger_currency"]:
+                fx_rate = "1"
+                fx_date = purchased_on
+                fx_source = "none"
+            elif fx_rate:
+                try:
+                    fx_rate = str(validate_rate(fx_rate))
+                except ValueError as error:
+                    raise ProblemError(422, "FX_RATE_INVALID", str(error)) from error
+                fx_date = purchased_on
+                if payload.fx_rate is not None and payload.fx_rate != row["fx_rate"]:
+                    fx_source = "manual"
+                else:
+                    fx_source = fx_source or "manual"
+            elif total_minor is not None or payload.items is not None:
+                raise ProblemError(
+                    409, "FX_RATE_NEEDED", "Provide an exchange rate before saving amounts"
+                )
+            total_ledger_minor = (
+                convert_minor(
+                    total_minor,
+                    currency_units[currency],
+                    currency_units[row["ledger_currency"]],
+                    fx_rate,
+                )
+                if total_minor is not None and fx_rate
+                else None
+            )
             changes = {
                 "merchant": payload.merchant_name,
-                "purchased_on": payload.purchased_on.isoformat() if payload.purchased_on else None,
-                "currency_code": payload.currency.upper() if payload.currency else None,
-                "total_minor": payload.total_minor,
+                "purchased_on": purchased_on,
+                "currency_code": currency,
+                "total_minor": total_minor,
+                "total_ledger_minor": total_ledger_minor,
+                "fx_rate": fx_rate,
+                "fx_date": fx_date,
+                "fx_source": fx_source,
                 "note": payload.note,
             }
             updates = []
@@ -306,23 +386,73 @@ def patch_receipt(receipt_id: str):
                         ),
                     )
             if payload.items is not None:
+                for item in payload.items:
+                    if item.category_id and not connection.execute(
+                        "SELECT 1 FROM categories WHERE id = ? AND (ledger_id IS NULL OR ledger_id = ?)",
+                        (item.category_id, row["ledger_id"]),
+                    ).fetchone():
+                        raise ProblemError(
+                            422, "CATEGORY_INVALID", "Category does not belong to this ledger"
+                        )
                 connection.execute("DELETE FROM line_items WHERE receipt_id = ?", (receipt_id,))
                 for item in payload.items:
+                    item_name = item.name.strip()
+                    if not item_name:
+                        raise ProblemError(422, "VALIDATION_ERROR", "Item name is required")
                     connection.execute(
                         "INSERT INTO line_items(id, receipt_id, category_id, name, name_norm, qty_milli, unit_minor, amount_minor, amount_ledger_minor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             item.id or new_id(),
                             receipt_id,
                             item.category_id,
-                            item.name.strip(),
-                            normalize_text(item.name),
+                            item_name,
+                            normalize_text(item_name),
                             item.qty_milli,
                             item.unit_price_minor,
                             item.amount_minor,
-                            item.amount_minor,
+                            (
+                                convert_minor(
+                                    item.amount_minor,
+                                    currency_units[currency],
+                                    currency_units[row["ledger_currency"]],
+                                    fx_rate,
+                                )
+                                if fx_rate
+                                else None
+                            ),
                             utc_now(),
                         ),
                     )
+            elif currency != row["currency_code"] or fx_rate != row["fx_rate"]:
+                for item in connection.execute(
+                    "SELECT id, amount_minor FROM line_items WHERE receipt_id = ?",
+                    (receipt_id,),
+                ).fetchall():
+                    connection.execute(
+                        "UPDATE line_items SET amount_ledger_minor = ? WHERE id = ?",
+                        (
+                            convert_minor(
+                                item["amount_minor"] or 0,
+                                currency_units[currency],
+                                currency_units[row["ledger_currency"]],
+                                fx_rate,
+                            )
+                            if fx_rate
+                            else None,
+                            item["id"],
+                        ),
+                    )
+            issues = json.loads(row["issues"] or "[]")
+            if currency != row["ledger_currency"] and not fx_rate:
+                if "FX_RATE_NEEDED" not in issues:
+                    issues.append("FX_RATE_NEEDED")
+            else:
+                issues = [issue for issue in issues if issue != "FX_RATE_NEEDED"]
+            if currency:
+                issues = [issue for issue in issues if issue != "CURRENCY_AMBIGUOUS"]
+            if issues != json.loads(row["issues"] or "[]"):
+                updates.append("issues = ?")
+                values.append(json.dumps(issues))
             if not updates and payload.items is None:
                 return jsonify(_detail(connection, row))
             new_updated = _version_now()

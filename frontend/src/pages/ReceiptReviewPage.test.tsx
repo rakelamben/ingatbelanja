@@ -14,6 +14,7 @@ vi.mock("../lib/api", async () => {
       ledger: vi.fn(),
       receipt: vi.fn(),
       categories: vi.fn(),
+      currencies: vi.fn(),
       patchReceipt: vi.fn(),
       confirmReceipt: vi.fn(),
       deleteReceipt: vi.fn(),
@@ -64,6 +65,7 @@ describe("ReceiptReviewPage", () => {
       currency: "IDR",
       role: "owner",
       member_count: 1,
+      sum_spend: 0,
       members: [],
     });
     vi.mocked(api.receipt).mockResolvedValue(mockReceipt);
@@ -71,6 +73,12 @@ describe("ReceiptReviewPage", () => {
       categories: [
         { id: "cat-1", name: "Makanan", is_system: true, ledger_id: null },
         { id: "cat-2", name: "Transport", is_system: true, ledger_id: null },
+      ],
+    });
+    vi.mocked(api.currencies).mockResolvedValue({
+      currencies: [
+        { code: "IDR", name: "Rupiah", symbol: "Rp", minor_unit: 0 },
+        { code: "USD", name: "Dolar AS", symbol: "$", minor_unit: 2 },
       ],
     });
   });

@@ -4,15 +4,16 @@ import {
   api,
   ApiError,
   type Category,
+  type Currency,
   type ReceiptDetail,
   type ReceiptItem,
 } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
 import { ledgerPath } from "../lib/routes";
+import { ExpenseEditor } from "../components/ExpenseEditor";
+import { formatMinorMoney } from "../lib/money";
 import {
   Button,
-  Field,
-  SelectField,
   Alert,
   StatusBadge,
   EmptyState,
@@ -39,24 +40,16 @@ const ISSUE_LABELS: Record<string, { label: string; desc: string }> = {
   FX_RATE_NEEDED: { label: "Perlu Kurs Konversi", desc: "Transaksi dalam mata uang asing." },
 };
 
-const formatMoney = (amount: number | null, currency: string) => {
-  if (amount == null) return "—";
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: currency || "IDR",
-    maximumFractionDigits: currency === "IDR" ? 0 : 2,
-  }).format(amount / (currency === "IDR" ? 1 : 100));
-};
-
 export function ReceiptReviewPage() {
   const { ledgerId, receiptId } = useParams<{ ledgerId: string; receiptId: string }>();
-  const { ledger } = useLedger();
+  const { ledger, permissions } = useLedger();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const selectedItemId = searchParams.get("item");
 
   const [receipt, setReceipt] = useState<ReceiptDetail | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -65,7 +58,7 @@ export function ReceiptReviewPage() {
   const [merchantName, setMerchantName] = useState("");
   const [purchasedOn, setPurchasedOn] = useState("");
   const [currency, setCurrency] = useState("IDR");
-  const [totalMinor, setTotalMinor] = useState<string>("0");
+  const [totalMinor, setTotalMinor] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [fxRate, setFxRate] = useState("");
   const [items, setItems] = useState<ReceiptItem[]>([]);
@@ -85,12 +78,14 @@ export function ReceiptReviewPage() {
 
     Promise.all([
       api.receipt(receiptId),
-      api.categories(ledgerId).catch(() => ({ categories: [] })),
+      api.categories(ledgerId),
+      api.currencies(),
     ])
-      .then(([rcpt, catData]) => {
+      .then(([rcpt, catData, currencyData]) => {
         if (cancelled) return;
         setReceipt(rcpt);
         setCategories(catData.categories);
+        setCurrencies(currencyData.currencies);
         populateForm(rcpt);
       })
       .catch((err) => {
@@ -137,7 +132,7 @@ export function ReceiptReviewPage() {
     setMerchantName(data.merchant_name || "");
     setPurchasedOn(data.purchased_on || new Date().toISOString().slice(0, 10));
     setCurrency(data.currency || "IDR");
-    setTotalMinor(data.total_minor != null ? String(data.total_minor) : "0");
+    setTotalMinor(data.total_minor);
     setNote(data.note || "");
     setFxRate(data.fx_rate || "");
     setItems(data.items.length ? data.items : []);
@@ -149,7 +144,7 @@ export function ReceiptReviewPage() {
     if ((receipt.merchant_name || "") !== merchantName.trim()) return true;
     if ((receipt.purchased_on || "") !== purchasedOn) return true;
     if ((receipt.currency || "IDR") !== currency) return true;
-    if (String(receipt.total_minor ?? 0) !== totalMinor) return true;
+    if (receipt.total_minor !== totalMinor) return true;
     if ((receipt.note || "") !== note.trim()) return true;
     if ((receipt.fx_rate || "") !== fxRate.trim()) return true;
     if (receipt.items.length !== items.length) return true;
@@ -159,15 +154,28 @@ export function ReceiptReviewPage() {
       if (!orig) return true;
       if (orig.name !== cur.name) return true;
       if (orig.amount_minor !== cur.amount_minor) return true;
+      if ((orig.unit_price_minor ?? null) !== (cur.unit_price_minor ?? null)) return true;
       if (orig.category_id !== cur.category_id) return true;
       if (orig.qty_milli !== cur.qty_milli) return true;
     }
     return false;
   })();
 
-  const sumItems = items.reduce((sum, item) => sum + (Number(item.amount_minor) || 0), 0);
-  const totalNum = Number(totalMinor) || 0;
-  const hasDiscrepancy = items.length > 0 && sumItems !== totalNum;
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
+
+  const handleBack = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (isDirty && typeof window !== "undefined" && !window.confirm("Perubahan belum disimpan. Yakin ingin kembali?")) {
+      e.preventDefault();
+    }
+  };
 
   // Add Item
   const handleAddItem = () => {
@@ -196,9 +204,11 @@ export function ReceiptReviewPage() {
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Match Total to Items Sum
-  const handleSyncTotalWithItems = () => {
-    setTotalMinor(String(sumItems));
+  const handleCreateCategory = async (name: string) => {
+    if (!ledgerId) throw new Error("Buku tidak ditemukan.");
+    const category = await api.createCategory(ledgerId, name);
+    setCategories((prev) => [...prev, category]);
+    return category;
   };
 
   // Save changes (Patch)
@@ -214,13 +224,14 @@ export function ReceiptReviewPage() {
         merchant_name: merchantName.trim() || null,
         purchased_on: purchasedOn || null,
         currency,
-        total_minor: totalNum,
+        total_minor: totalMinor,
         note: note.trim() || null,
         fx_rate: fxRate.trim() || null,
         items: items.map((item) => ({
           id: item.id,
           name: item.name.trim() || "Item",
           qty_milli: item.qty_milli || 1000,
+          unit_price_minor: item.unit_price_minor ?? null,
           amount_minor: Number(item.amount_minor) || 0,
           category_id: item.category_id || null,
         })),
@@ -241,6 +252,17 @@ export function ReceiptReviewPage() {
   // Confirm Receipt
   const handleConfirm = async () => {
     if (!receipt || !receiptId || !ledgerId) return;
+    if (
+      !purchasedOn ||
+      totalMinor == null ||
+      totalMinor <= 0 ||
+      !items.length ||
+      items.some((item) => !item.name.trim()) ||
+      (currency !== ledger?.currency && !fxRate.trim())
+    ) {
+      setError("Lengkapi tanggal, total, item, dan kurs valuta sebelum mengonfirmasi.");
+      return;
+    }
     setConfirming(true);
     setError("");
 
@@ -324,13 +346,15 @@ export function ReceiptReviewPage() {
 
   const isConfirmed = receipt.status === "confirmed";
   const isPhoto = receipt.source === "photo";
-  const isForeignCurrency = ledger && currency !== ledger.currency;
+  const ledgerMinorUnit =
+    currencies.find((item) => item.code === ledger?.currency)?.minor_unit ?? 0;
 
   return (
     <section className="receipt-review-page">
       <Link
         className="back-link"
         to={ledger ? ledgerPath(ledger.id, "history") : "/app"}
+        onClick={handleBack}
       >
         <Icon name="arrow-left" size={16} />
         <span>Kembali ke Riwayat</span>
@@ -441,217 +465,47 @@ export function ReceiptReviewPage() {
           </aside>
         )}
 
-        {/* Right Column: Form & Item Editor */}
-        <div className="review-form-column">
-          <div className="review-section-card">
-            <h2>Informasi Utama</h2>
-            <div className="review-grid-2">
-              <Field
-                id="review-merchant"
-                label="Nama Toko / Merchant"
-                value={merchantName}
-                onChange={(e) => setMerchantName(e.target.value)}
-                placeholder="Contoh: Superindo, Indomaret"
-              />
-              <Field
-                id="review-date"
-                label="Tanggal Transaksi"
-                type="date"
-                value={purchasedOn}
-                onChange={(e) => setPurchasedOn(e.target.value)}
-              />
-            </div>
-
-            <div className="review-grid-2">
-              <SelectField
-                id="review-currency"
-                label="Mata Uang"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-              >
-                <option value="IDR">IDR (Rupiah)</option>
-                <option value="USD">USD (Dolar AS)</option>
-                <option value="SGD">SGD (Dolar Singapura)</option>
-                <option value="MYR">MYR (Ringgit Malaysia)</option>
-                <option value="EUR">EUR (Euro)</option>
-              </SelectField>
-
-              <Field
-                id="review-total"
-                label={`Total Transaksi (${currency})`}
-                type="number"
-                inputMode="numeric"
-                min="0"
-                value={totalMinor}
-                onChange={(e) => setTotalMinor(e.target.value)}
-                help={formatMoney(totalNum, currency)}
-              />
-            </div>
-
-            <Field
-              id="review-note"
-              label="Catatan Tambahan"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Catatan belanja, keperluan kerja, dsb."
-            />
-          </div>
-
-          {/* Foreign Exchange Panel */}
-          {isForeignCurrency && (
-            <div className="review-section-card fx-card" role="region" aria-label="Panel Konversi Valuta">
-              <div className="fx-header">
-                <Icon name="chart" size={18} />
-                <strong>Konversi Valuta Asing ({currency} → {ledger?.currency})</strong>
-              </div>
-              <p className="muted text-xs">
-                Transaksi ini dicatat dalam valuta asing. Sistem akan mengonversinya ke mata uang buku (
-                {ledger?.currency}).
-              </p>
-              <div className="review-grid-2 mt-2">
-                <Field
-                  id="review-fx-rate"
-                  label={`Kurs 1 ${currency} dalam ${ledger?.currency}`}
-                  value={fxRate}
-                  onChange={(e) => setFxRate(e.target.value)}
-                  placeholder="Contoh: 15500"
-                  help={receipt.fx_date ? `Sumber kurs: ${receipt.fx_source || "Sistem"} (${receipt.fx_date})` : undefined}
-                />
-                <div className="fx-converted-box">
-                  <small>Estimasi Total Buku</small>
-                  <strong>
-                    {formatMoney(
-                      receipt.total_ledger_minor ?? (fxRate ? Math.round(totalNum * Number(fxRate)) : null),
-                      ledger?.currency || "IDR",
-                    )}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Line Items Editor */}
-          <div className="review-section-card">
-            <div className="items-header">
-              <div>
-                <h2>Rincian Item Belanja ({items.length})</h2>
-                <small className="muted">
-                  Periksa setiap nama barang, kuantitas, dan harga subtotal.
-                </small>
-              </div>
-              <Button variant="secondary" className="text-xs" onClick={handleAddItem}>
-                <Icon name="plus" size={14} />
-                <span>Tambah Item</span>
-              </Button>
-            </div>
-
-            {/* Discrepancy Alert */}
-            {hasDiscrepancy && (
-              <div className="discrepancy-callout" role="alert">
-                <Icon name="alert" size={18} />
-                <div className="discrepancy-text">
-                  <span>
-                    Jumlah rincian ({formatMoney(sumItems, currency)}) berbeda dari total transaksi (
-                    {formatMoney(totalNum, currency)}).
-                  </span>
-                  <button
-                    type="button"
-                    className="text-link text-xs ml-2"
-                    onClick={handleSyncTotalWithItems}
-                  >
-                    Gunakan total rincian ({formatMoney(sumItems, currency)})
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="items-list">
-              {items.length === 0 ? (
-                <p className="muted text-sm text-center py-4">
-                  Belum ada rincian item. Klik &quot;Tambah Item&quot; untuk mencatat per barang.
-                </p>
-              ) : (
-                items.map((item, idx) => (
-                  <div
-                    className={`item-row-card${selectedItemId === item.id ? " is-selected" : ""}`}
-                    id={item.id ? `receipt-item-${item.id}` : undefined}
-                    key={item.id || idx}
-                  >
-                    <div className="item-row-main">
-                      <Field
-                        id={`item-name-${idx}`}
-                        label="Nama Barang"
-                        value={item.name}
-                        onChange={(e) => handleUpdateItem(idx, { name: e.target.value })}
-                        placeholder="Nama barang"
-                      />
-                    </div>
-                    <div className="item-row-side">
-                      <div className="item-col-qty">
-                        <Field
-                          id={`item-qty-${idx}`}
-                          label="Qty"
-                          type="number"
-                          min="1"
-                          value={Math.round(item.qty_milli / 1000) || 1}
-                          onChange={(e) =>
-                            handleUpdateItem(idx, { qty_milli: Math.max(1, Number(e.target.value)) * 1000 })
-                          }
-                        />
-                      </div>
-                      <div className="item-col-price">
-                        <Field
-                          id={`item-price-${idx}`}
-                          label="Subtotal (Rp)"
-                          type="number"
-                          min="0"
-                          value={item.amount_minor}
-                          onChange={(e) =>
-                            handleUpdateItem(idx, { amount_minor: Math.max(0, Number(e.target.value)) })
-                          }
-                        />
-                      </div>
-                      <div className="item-col-cat">
-                        <SelectField
-                          id={`item-cat-${idx}`}
-                          label="Kategori"
-                          value={item.category_id || ""}
-                          onChange={(e) =>
-                            handleUpdateItem(idx, { category_id: e.target.value || null })
-                          }
-                        >
-                          <option value="">(Belum kategori)</option>
-                          {categories.map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {cat.name}
-                            </option>
-                          ))}
-                        </SelectField>
-                      </div>
-
-                      <div className="item-col-action">
-                        <button
-                          type="button"
-                          className="ghost-button item-delete-btn"
-                          onClick={() => handleRemoveItem(idx)}
-                          aria-label={`Hapus ${item.name || "item"}`}
-                        >
-                          <Icon name="close" size={16} />
-                          <span className="item-delete-label">Hapus</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+        {/* Right Column: Shared Expense Editor */}
+        <form
+          className="review-form-column"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleConfirm();
+          }}
+        >
+          <ExpenseEditor
+            merchantName={merchantName}
+            onMerchantNameChange={setMerchantName}
+            purchasedOn={purchasedOn}
+            onPurchasedOnChange={setPurchasedOn}
+            currency={currency}
+            onCurrencyChange={setCurrency}
+            totalMinor={totalMinor}
+            onTotalMinorChange={setTotalMinor}
+            note={note}
+            onNoteChange={setNote}
+            fxRate={fxRate}
+            onFxRateChange={setFxRate}
+            items={items}
+            onAddItem={handleAddItem}
+            onUpdateItem={handleUpdateItem}
+            onRemoveItem={handleRemoveItem}
+            categories={categories}
+            currencies={currencies}
+            ledgerCurrency={ledger?.currency || "IDR"}
+            ledgerMinorUnit={ledgerMinorUnit}
+            canCreateCategory={permissions.canManage}
+            onCreateCategory={handleCreateCategory}
+            selectedItemId={selectedItemId}
+            fxDate={receipt.fx_date}
+            fxSource={receipt.fx_source}
+          />
 
           {/* Action Bar */}
           <div className="review-actions-bar">
             <Button
+              type="submit"
               variant="primary"
-              onClick={handleConfirm}
               loading={confirming}
               className="confirm-btn"
             >
@@ -677,7 +531,7 @@ export function ReceiptReviewPage() {
               Hapus Transaksi
             </Button>
           </div>
-        </div>
+        </form>
       </div>
     </section>
   );

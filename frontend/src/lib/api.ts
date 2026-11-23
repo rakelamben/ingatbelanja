@@ -1,7 +1,14 @@
 export type User = { id: string; username: string; display_name: string | null };
 export type Session = { user: User; csrf_token: string; personal_ledger_id: string; ai_notice_acknowledged: boolean };
-export type Ledger = { id: string; name: string; type: "personal" | "tracker"; currency: string; role: "owner" | "member"; member_count: number };
+export type Ledger = { id: string; name: string; type: "personal" | "tracker"; currency: string; role: "owner" | "member"; member_count: number, sum_spend: number};
 export type Receipt = { id: string; status: string; merchant_name: string | null; purchased_on: string | null; currency: string; total_minor: number | null; total_ledger_minor: number | null; created_by?: string; updated_at: string };
+export type ReceiptUpload = {
+  id: string;
+  ledger_id: string;
+  status: string;
+  source: "photo";
+  created_at: string;
+};
 export type RecentExpenseItem = {
   id: string;
   receipt_id: string;
@@ -9,6 +16,7 @@ export type RecentExpenseItem = {
   category_name: string | null;
   name: string;
   created_at: string;
+  purchased_on: string | null;
   amount_minor: number | null;
   amount_ledger_minor: number | null;
   currency: string;
@@ -52,6 +60,47 @@ export type Category = {
   name: string;
   is_system: boolean;
   ledger_id: string | null;
+};
+export type Currency = {
+  code: string;
+  name: string;
+  symbol: string;
+  minor_unit: number;
+};
+export type ManualReceiptPayload = {
+  purchased_on: string;
+  currency: string;
+  amount_minor: number;
+  merchant_name?: string;
+  note?: string;
+  fx_rate?: string;
+  items: {
+    name: string;
+    qty_milli: number;
+    unit_price_minor: number | null;
+    amount_minor: number;
+    category_id: string | null;
+  }[];
+};
+export type ManualReceiptResponse = {
+  id: string;
+  ledger_id: string;
+  status: "confirmed";
+  merchant: string;
+  purchased_on: string;
+  currency: string;
+  total_minor: number;
+  total_ledger_minor: number;
+  fx_rate: string;
+  fx_date: string;
+  fx_source: string;
+  items: {
+    id: string;
+    name: string;
+    category_id: string | null;
+    amount_minor: number;
+    amount_ledger_minor: number;
+  }[];
 };
 
 export type ReceiptPatchPayload = {
@@ -128,21 +177,27 @@ export const api = {
   ledgers: () => request<{ ledgers: Ledger[] }>("/ledgers"),
   ledger: (id: string) => request<Ledger & { members: User[] }>(`/ledgers/${id}`),
   receipts: (id: string, query = "") => request<{ items: Receipt[]; next_cursor: string | null }>(`/ledgers/${id}/receipts${query}`),
-  recentExpenseItems: (id: string, limit = 5) =>
-    request<{ items: RecentExpenseItem[] }>(
-      `/ledgers/${id}/recent-items?limit=${encodeURIComponent(limit)}`,
-    ),
+  recentExpenseItems: (id: string, limit = 5, cursor?: string) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<{ items: RecentExpenseItem[]; next_cursor: string | null }>(
+      `/ledgers/${id}/recent-items?${query.toString()}`,
+    );
+  },
   receipt: (receiptId: string) => request<ReceiptDetail>(`/receipts/${receiptId}`),
   patchReceipt: (receiptId: string, payload: ReceiptPatchPayload) => request<ReceiptDetail>(`/receipts/${receiptId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   confirmReceipt: (receiptId: string) => request<{ id: string; status: string; updated_at: string }>(`/receipts/${receiptId}/confirm`, { method: "POST" }),
   reprocessReceipt: (receiptId: string) => request<{ id: string; status: string }>(`/receipts/${receiptId}/reprocess`, { method: "POST" }),
   deleteReceipt: (receiptId: string) => request<void>(`/receipts/${receiptId}`, { method: "DELETE" }),
   categories: (ledgerId: string) => request<{ categories: Category[] }>(`/ledgers/${ledgerId}/categories`),
+  createCategory: (ledgerId: string, name: string) =>
+    request<Category>(`/ledgers/${ledgerId}/categories`, { method: "POST", body: JSON.stringify({ name }) }),
+  currencies: () => request<{ currencies: Currency[] }>("/meta/currencies"),
   receiptImageUrl: (receiptId: string, kind: "original" | "processed" | "thumb" = "processed") => `${API_PREFIX}/receipts/${encodeURIComponent(receiptId)}/image/${kind}`,
-  manualReceipt: (id: string, payload: unknown) => request<Receipt>(`/ledgers/${id}/receipts/manual`, { method: "POST", body: JSON.stringify(payload) }),
+  manualReceipt: (id: string, payload: ManualReceiptPayload) => request<ManualReceiptResponse>(`/ledgers/${id}/receipts/manual`, { method: "POST", body: JSON.stringify(payload) }),
   uploadPhoto: async (id: string, file: File, note = "", isHandwritten = false) => {
     const form = new FormData(); form.append("file", file); if (note) form.append("note", note); form.append("is_handwritten", String(isHandwritten));
-    return request<Receipt>(`/ledgers/${id}/receipts/photo`, { method: "POST", body: form, headers: { "Idempotency-Key": crypto.randomUUID() } });
+    return request<ReceiptUpload>(`/ledgers/${id}/receipts/photo`, { method: "POST", body: form, headers: { "Idempotency-Key": crypto.randomUUID() } });
   },
   receiptStatus: (id: string) => request<{ id: string; status: string; issues: string[]; updated_at: string }>(`/receipts/${id}/status`),
   createTracker: (name: string, currency: string) => request<Ledger>("/ledgers", { method: "POST", body: JSON.stringify({ name, currency }) }),

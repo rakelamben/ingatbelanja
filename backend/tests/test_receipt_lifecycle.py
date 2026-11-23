@@ -117,3 +117,66 @@ def test_recent_items_are_ordered_by_input_time_and_include_category(tmp_path):
     assert response.json["items"][0]["receipt_id"] == newer["id"]
     assert response.json["items"][0]["category_name"] == "Transportasi"
     assert response.json["items"][0]["amount_ledger_minor"] == 23000
+    assert response.json["items"][0]["purchased_on"] == "2026-11-17"
+    assert response.json["next_cursor"]
+
+    next_page = client.get(
+        f"/api/v1/ledgers/{ledger_id}/recent-items?limit=1&cursor={response.json['next_cursor']}"
+    )
+    assert next_page.status_code == 200
+    assert len(next_page.json["items"]) == 1
+    assert next_page.json["items"][0]["receipt_id"] == older["id"]
+    assert next_page.json["next_cursor"] is None
+
+
+def test_patching_foreign_receipt_recalculates_ledger_amounts(tmp_path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    session = client.post(
+        "/api/v1/auth/register",
+        json={"username": "reviewerfx", "password": "password-aman"},
+        environ_overrides={"REMOTE_ADDR": "192.0.2.25"},
+    ).json
+    csrf = session["csrf_token"]
+    tracker = client.post(
+        "/api/v1/ledgers",
+        json={"name": "USD book", "currency": "USD"},
+        headers={"X-CSRF-Token": csrf},
+    ).json
+    receipt = client.post(
+        f"/api/v1/ledgers/{tracker['id']}/receipts/manual",
+        json={
+            "purchased_on": "2026-11-19",
+            "currency": "IDR",
+            "amount_minor": 10000,
+            "fx_rate": "0.0000625",
+            "items": [
+                {"name": "Nasi", "amount_minor": 5000, "category_id": "system-food"}
+            ],
+        },
+        headers={"X-CSRF-Token": csrf},
+    ).json
+    detail = client.get(f"/api/v1/receipts/{receipt['id']}").json
+
+    response = client.patch(
+        f"/api/v1/receipts/{receipt['id']}",
+        json={
+            "expected_updated_at": detail["updated_at"],
+            "total_minor": 20000,
+            "fx_rate": "0.00005",
+            "items": [
+                {
+                    "name": "Nasi",
+                    "qty_milli": 1000,
+                    "amount_minor": 10000,
+                    "category_id": "system-food",
+                }
+            ],
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert response.json["total_ledger_minor"] == 100
+    assert response.json["fx_rate"] == "0.00005"
+    assert response.json["items"][0]["amount_ledger_minor"] == 50

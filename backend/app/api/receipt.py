@@ -22,16 +22,27 @@ from .ledger import log_activity, require_member
 receipt_api = Blueprint("receipt", __name__, url_prefix="/api/v1")
 
 
+class ManualReceiptItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    qty_milli: int = Field(default=1000, gt=0, le=9_223_372_036_854_775_807)
+    unit_price_minor: int | None = Field(default=None, ge=0, le=9_223_372_036_854_775_807)
+    amount_minor: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    category_id: str | None = None
+
+
 class ManualReceiptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     purchased_on: date
     currency: str | None = Field(default=None, min_length=3, max_length=3)
-    amount_minor: int = Field(gt=0)
+    amount_minor: int = Field(gt=0, le=9_223_372_036_854_775_807)
     merchant_name: str | None = Field(default=None, max_length=160)
     category_id: str | None = None
     note: str | None = Field(default=None, max_length=1000)
     fx_rate: str | None = None
+    items: list[ManualReceiptItem] | None = Field(default=None, min_length=1, max_length=100)
 
 
 def body(model):
@@ -221,17 +232,31 @@ def create_manual_receipt(ledger_id: str):
         resolved["rate"],
     )
     receipt_id = new_id()
-    item_id = new_id()
     now = utc_now()
-    merchant = (payload.merchant_name or "Manual expense").strip()
+    merchant = (payload.merchant_name or "").strip() or "Manual expense"
+    manual_items = payload.items or [
+        ManualReceiptItem(
+            name=merchant,
+            qty_milli=1000,
+            unit_price_minor=payload.amount_minor,
+            amount_minor=payload.amount_minor,
+            category_id=payload.category_id,
+        )
+    ]
+    item_responses = []
     connection = connect(settings.database_path)
     try:
         with tx(connection, write=True):
             ledger = require_member(connection, ledger_id, _user_id())
-            if payload.category_id:
+            for item in manual_items:
+                item_name = item.name.strip()
+                if not item_name:
+                    raise ProblemError(422, "VALIDATION_ERROR", "Item name is required")
+                if not item.category_id:
+                    continue
                 category = connection.execute(
                     "SELECT id FROM categories WHERE id = ? AND (ledger_id IS NULL OR ledger_id = ?)",
-                    (payload.category_id, ledger_id),
+                    (item.category_id, ledger_id),
                 ).fetchone()
                 if not category:
                     raise ProblemError(
@@ -259,21 +284,40 @@ def create_manual_receipt(ledger_id: str):
                     now,
                 ),
             )
-            connection.execute(
-                "INSERT INTO line_items(id, receipt_id, category_id, name, name_norm, qty_milli, unit_minor, "
-                "amount_minor, amount_ledger_minor, created_at) VALUES (?, ?, ?, ?, ?, 1000, ?, ?, ?, ?)",
-                (
-                    item_id,
-                    receipt_id,
-                    payload.category_id,
-                    merchant,
-                    normalize_text(merchant),
-                    payload.amount_minor,
-                    payload.amount_minor,
-                    amount_ledger_minor,
-                    now,
-                ),
-            )
+            for item in manual_items:
+                item_id = new_id()
+                item_name = item.name.strip()
+                item_amount_ledger_minor = convert_minor(
+                    item.amount_minor,
+                    receipt_currency_row["minor_unit"],
+                    book_currency["minor_unit"],
+                    resolved["rate"],
+                )
+                connection.execute(
+                    "INSERT INTO line_items(id, receipt_id, category_id, name, name_norm, qty_milli, unit_minor, "
+                    "amount_minor, amount_ledger_minor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        item_id,
+                        receipt_id,
+                        item.category_id,
+                        item_name,
+                        normalize_text(item_name),
+                        item.qty_milli,
+                        item.unit_price_minor,
+                        item.amount_minor,
+                        item_amount_ledger_minor,
+                        now,
+                    ),
+                )
+                item_responses.append(
+                    {
+                        "id": item_id,
+                        "name": item_name,
+                        "category_id": item.category_id,
+                        "amount_minor": item.amount_minor,
+                        "amount_ledger_minor": item_amount_ledger_minor,
+                    }
+                )
             if ledger["type"] == "tracker":
                 log_activity(connection, ledger_id, "receipt_created", "receipt", receipt_id)
         return jsonify(
@@ -289,7 +333,7 @@ def create_manual_receipt(ledger_id: str):
                 "fx_rate": resolved["rate"],
                 "fx_date": resolved["fx_date"],
                 "fx_source": resolved["source"],
-                "items": [{"id": item_id, "name": merchant, "amount_minor": payload.amount_minor}],
+                "items": item_responses,
             }
         ), 201
     finally:

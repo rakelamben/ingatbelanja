@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, type Session } from "../lib/api";
 import { LedgerProvider } from "../context/LedgerContext";
+import { LedgerSelectionProvider, useLedgerSelection } from "../context/LedgerSelectionContext";
+import { SessionProvider } from "../context/SessionContext";
 import { HomePage } from "./HomePage";
 
 vi.mock("../lib/api", async () => {
@@ -11,6 +13,7 @@ vi.mock("../lib/api", async () => {
     ...actual,
     api: {
       ...((actual as Record<string, unknown>).api as Record<string, unknown>),
+      ledgers: vi.fn(),
       ledger: vi.fn(),
       summary: vi.fn(),
       recentExpenseItems: vi.fn(),
@@ -19,26 +22,53 @@ vi.mock("../lib/api", async () => {
 });
 
 describe("HomePage", () => {
+  const session: Session = {
+    user: { id: "user-1", username: "tester", display_name: "Tester" },
+    csrf_token: "csrf",
+    personal_ledger_id: "ledger-home",
+    ai_notice_acknowledged: true,
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(api.ledger).mockResolvedValue({
-      id: "ledger-home",
-      name: "Buku Rumah",
-      type: "personal",
+    vi.mocked(api.ledgers).mockResolvedValue({
+      ledgers: [
+        {
+          id: "ledger-home",
+          name: "Buku Rumah",
+          type: "personal",
+          currency: "IDR",
+          role: "owner",
+          member_count: 1,
+        },
+        {
+          id: "ledger-shared",
+          name: "Buku Bersama",
+          type: "tracker",
+          currency: "IDR",
+          role: "member",
+          member_count: 2,
+        },
+      ],
+    });
+    vi.mocked(api.ledger).mockImplementation(async (id) => ({
+      id,
+      name: id === "ledger-shared" ? "Buku Bersama" : "Buku Rumah",
+      type: id === "ledger-shared" ? "tracker" : "personal",
       currency: "IDR",
-      role: "owner",
+      role: id === "ledger-shared" ? "member" : "owner",
       member_count: 1,
       members: [],
-    });
-    vi.mocked(api.summary).mockResolvedValue({
-      total_minor: 450000,
+    }));
+    vi.mocked(api.summary).mockImplementation(async (id) => ({
+      total_minor: id === "ledger-shared" ? 88000 : 450000,
       count: 3,
       by_category: [],
       by_day: [],
       top_merchants: [],
       compare: { diff_minor: 0, pct_bp: 0 },
       currency: "IDR",
-    });
+    }));
     vi.mocked(api.recentExpenseItems).mockResolvedValue({
       items: [
         {
@@ -48,29 +78,37 @@ describe("HomePage", () => {
           category_name: "Makanan",
           name: "",
           created_at: "2026-11-20T12:30:00Z",
+          purchased_on: "2026-11-20",
           amount_minor: 125000,
           amount_ledger_minor: 125000,
           currency: "IDR",
           ledger_currency: "IDR",
         },
       ],
+      next_cursor: null,
     });
   });
 
+  function HomeRoute() {
+    const { homeLedgerId } = useLedgerSelection();
+    return (
+      <LedgerProvider key={homeLedgerId} ledgerId={homeLedgerId}>
+        <HomePage />
+      </LedgerProvider>
+    );
+  }
+
   function renderHome() {
     return render(
-      <MemoryRouter initialEntries={["/app/ledger/ledger-home"]}>
-        <Routes>
-          <Route
-            path="/app/ledger/:ledgerId"
-            element={
-              <LedgerProvider>
-                <HomePage />
-              </LedgerProvider>
-            }
-          />
-        </Routes>
-      </MemoryRouter>,
+      <SessionProvider initialSession={session}>
+        <LedgerSelectionProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <Routes>
+              <Route path="/home" element={<HomeRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </LedgerSelectionProvider>
+      </SessionProvider>,
     );
   }
 
@@ -85,7 +123,7 @@ describe("HomePage", () => {
     expect(api.recentExpenseItems).toHaveBeenCalledWith("ledger-home");
   });
 
-  it("links a recent item to its receipt and passes the selected item id", async () => {
+  it("keeps the home URL stable and uses the selected ledger for contextual links", async () => {
     renderHome();
 
     const itemLink = await screen.findByRole("link", { name: /makanan/i });
@@ -97,5 +135,18 @@ describe("HomePage", () => {
     expect(screen.getByRole("link", { name: "Lihat semua" }).getAttribute("href")).toBe(
       "/app/ledger/ledger-home/history",
     );
+  });
+
+  it("switches the ledger used for Home data without leaving /home", async () => {
+    renderHome();
+
+    const switcher = await screen.findByRole("combobox", { name: "Pilih buku untuk beranda" });
+    await waitFor(() => expect((switcher as HTMLSelectElement).disabled).toBe(false));
+    fireEvent.change(switcher, { target: { value: "ledger-shared" } });
+
+    expect(await screen.findByText("Buku Bersama")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /88\.000/ })).toBeTruthy();
+    expect(api.summary).toHaveBeenLastCalledWith("ledger-shared", expect.any(String));
+    expect(screen.getByRole("combobox", { name: "Pilih buku untuk beranda" })).toBeTruthy();
   });
 });

@@ -38,6 +38,8 @@ def test_tracker_owner_member_and_non_member_access(tmp_path) -> None:
         headers={"X-CSRF-Token": owner_csrf},
     )
     ledger_id = created.json["id"]
+    assert created.json["sum_spend"] == 0
+    assert owner.get("/api/v1/ledgers").json["ledgers"][0]["sum_spend"] == 0
     invite = owner.post(
         f"/api/v1/ledgers/{ledger_id}/invites",
         json={"max_uses": 1},

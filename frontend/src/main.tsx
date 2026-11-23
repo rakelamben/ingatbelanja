@@ -1,16 +1,18 @@
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createBrowserRouter,
   Navigate,
   Outlet,
   RouterProvider,
+  useNavigate,
   useParams,
   useRouteError,
 } from "react-router-dom";
 import "./styles/app.css";
 import { AppShell } from "./components/AppShell";
 import { LedgerProvider } from "./context/LedgerContext";
+import { LedgerSelectionProvider, useLedgerSelection } from "./context/LedgerSelectionContext";
 import { SessionProvider, useSession } from "./context/SessionContext";
 import { api, type Session } from "./lib/api";
 import { AuthPage } from "./pages/AuthPage";
@@ -27,6 +29,10 @@ import { TrackersPage } from "./pages/TrackersPage";
 import { ReceiptReviewPage } from "./pages/ReceiptReviewPage";
 import { reportWebVitals } from "./lib/metrics";
 import { ledgerPath } from "./lib/routes";
+import { PersonalisasiBukuPage } from "./pages/PersonalisasiBukuPage";
+import { DetailBukuPage } from "./pages/DetailBukuPage";
+import { SelectExpenseLedgerPage } from "./pages/SelectExpenseLedgerPage";
+import { ReceiptCapturePage } from "./pages/ReceiptCapturePage";
 
 async function rootLoader(): Promise<Session | null> {
   try {
@@ -73,25 +79,66 @@ function RouterOutlet() {
   return <Outlet />;
 }
 
-function HomeRedirect() {
-  const { session } = useSession();
-  const target = session?.personal_ledger_id
-    ? `/app/ledger/${session.personal_ledger_id}`
-    : "/app";
-  return <Navigate to={target} replace />;
+function AppLayout() {
+  return (
+    <LedgerSelectionProvider>
+      <AppShell />
+    </LedgerSelectionProvider>
+  );
 }
 
-function LedgerRedirect({ suffix }: { suffix: string }) {
-  const { session } = useSession();
-  const target = session?.personal_ledger_id
-    ? `/app/ledger/${session.personal_ledger_id}/${suffix}`
-    : "/app";
-  return <Navigate to={target} replace />;
+function HomeRoute() {
+  const { homeLedgerId } = useLedgerSelection();
+  return (
+    <LedgerProvider key={homeLedgerId} ledgerId={homeLedgerId}>
+      <HomePage />
+    </LedgerProvider>
+  );
 }
 
-function LegacyReportsRedirect() {
-  const { ledgerId } = useParams();
-  return <Navigate to={ledgerId ? ledgerPath(ledgerId, "analytics") : "/app"} replace />;
+function AnalyticsRoute() {
+  const { analyticLedgerId } = useLedgerSelection();
+  return (
+    <LedgerProvider key={analyticLedgerId} ledgerId={analyticLedgerId}>
+      <ReportsPage />
+    </LedgerProvider>
+  );
+}
+
+function LegacyHomeRedirect() {
+  const { ledgerId } = useParams<{ ledgerId: string }>();
+  const { setHomeLedgerId } = useLedgerSelection();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (ledgerId) setHomeLedgerId(ledgerId);
+    navigate("/home", { replace: true });
+  }, [ledgerId, navigate, setHomeLedgerId]);
+
+  return null;
+}
+
+function LegacyAnalyticsRedirect() {
+  const { ledgerId } = useParams<{ ledgerId: string }>();
+  const { setAnalyticLedgerId } = useLedgerSelection();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (ledgerId) setAnalyticLedgerId(ledgerId);
+    navigate("/analytic", { replace: true });
+  }, [ledgerId, navigate, setAnalyticLedgerId]);
+
+  return null;
+}
+
+function ContextualLedgerRedirect({ suffix }: { suffix: string }) {
+  const { homeLedgerId } = useLedgerSelection();
+  return (
+    <Navigate
+      to={homeLedgerId ? ledgerPath(homeLedgerId, suffix) : "/app/books"}
+      replace
+    />
+  );
 }
 
 const router = createBrowserRouter([
@@ -117,10 +164,11 @@ const router = createBrowserRouter([
         element: <ProtectedRoute />,
         children: [
           {
-            path: "/app",
-            element: <AppShell />,
+            element: <AppLayout />,
             children: [
-              { index: true, element: <HomeRedirect /> },
+              { path: "/home", element: <HomeRoute /> },
+              { path: "/analytic", element: <AnalyticsRoute /> },
+              { path: "/app", element: <Navigate to="/home" replace /> },
               {
                 path: "/app/ledger/:ledgerId",
                 element: (
@@ -129,37 +177,40 @@ const router = createBrowserRouter([
                   </LedgerProvider>
                 ),
                 children: [
-                  { index: true, element: <HomePage /> },
+                  { index: true, element: <LegacyHomeRedirect /> },
                   { path: "/app/ledger/:ledgerId/history", element: <HistoryPage /> },
                   { path: "/app/ledger/:ledgerId/scan", element: <ScanPage /> },
+                  { path: "/app/ledger/:ledgerId/scan/capture", element: <ReceiptCapturePage /> },
                   { path: "/app/ledger/:ledgerId/manual", element: <ManualPage /> },
                   {
                     path: "/app/ledger/:ledgerId/receipts/:receiptId",
                     element: <ReceiptReviewPage />,
                   },
-                  { path: "/app/ledger/:ledgerId/analytics", element: <ReportsPage /> },
-                  { path: "/app/ledger/:ledgerId/reports", element: <LegacyReportsRedirect /> },
+                  { path: "/app/ledger/:ledgerId/analytics", element: <LegacyAnalyticsRedirect /> },
+                  { path: "/app/ledger/:ledgerId/reports", element: <LegacyAnalyticsRedirect /> },
                   { path: "/app/ledger/:ledgerId/budget", element: <BudgetPage /> },
                   { path: "/app/ledger/:ledgerId/chat", element: <ChatPage /> },
                 ],
               },
               { path: "/app/books", element: <TrackersPage /> },
+              { path: "/app/books/create", element: <PersonalisasiBukuPage /> },
+              { path: "/app/books/:ledgerId", element: <DetailBukuPage /> },
               { path: "/app/trackers", element: <Navigate to="/app/books" replace /> },
               { path: "/app/account", element: <AccountPage /> },
-              { path: "/app/history", element: <LedgerRedirect suffix="history" /> },
-              { path: "/app/scan", element: <LedgerRedirect suffix="scan" /> },
-              { path: "/app/manual", element: <LedgerRedirect suffix="manual" /> },
-              { path: "/app/analytics", element: <LedgerRedirect suffix="analytics" /> },
-              { path: "/app/reports", element: <LedgerRedirect suffix="analytics" /> },
-              { path: "/app/budget", element: <LedgerRedirect suffix="budget" /> },
-              { path: "/app/chat", element: <LedgerRedirect suffix="chat" /> },
+              { path: "/app/history", element: <ContextualLedgerRedirect suffix="history" /> },
+              { path: "/app/scan", element: <SelectExpenseLedgerPage /> },
+              { path: "/app/manual", element: <ContextualLedgerRedirect suffix="manual" /> },
+              { path: "/app/analytics", element: <Navigate to="/analytic" replace /> },
+              { path: "/app/reports", element: <Navigate to="/analytic" replace /> },
+              { path: "/app/budget", element: <ContextualLedgerRedirect suffix="budget" /> },
+              { path: "/app/chat", element: <ContextualLedgerRedirect suffix="chat" /> },
             ],
           },
         ],
       },
     ],
   },
-  { path: "*", element: <Navigate to="/app" replace /> },
+  { path: "*", element: <Navigate to="/home" replace /> },
 ]);
 
 createRoot(document.getElementById("root")!).render(

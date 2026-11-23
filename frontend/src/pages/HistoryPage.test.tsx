@@ -72,6 +72,9 @@ describe("HistoryPage (Sprint D)", () => {
 
     const link = screen.getByRole("link", { name: /superindo karawaci/i });
     expect(link.getAttribute("href")).toBe("/app/ledger/ledger-main/receipts/rcpt-1");
+    expect(screen.getByRole("link", { name: /kembali ke beranda/i }).getAttribute("href")).toBe(
+      "/home",
+    );
   });
 
   it("debounces search input and requests filtered receipts", async () => {

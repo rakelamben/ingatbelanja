@@ -33,8 +33,6 @@ def process_photo_receipt(
         candidate = parse_rule_candidate(rows, receipt["currency_code"])
         mean_conf = sum(line.score for line in lines) / len(lines) if lines else 0.0
         issues = list(candidate["issues"])
-        if not lines:
-            issues.append("LLM_UNAVAILABLE")
         if mean_conf < 0.80:
             issues.append("LOW_OCR_CONF")
         status = (

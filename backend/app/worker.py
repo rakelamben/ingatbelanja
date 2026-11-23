@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .db import connect, tx
 from .extraction import process_photo_receipt
+from .ocr import build_ocr_engine
 from .storage import cleanup_orphans
 from .utils import utc_now
 
@@ -137,6 +138,7 @@ class Worker:
         self.settings = settings
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex}"
         self.queue = JobQueue(settings)
+        self.ocr_engine = build_ocr_engine(settings)
         self.stop_event = threading.Event()
 
     def run_once(self) -> bool:
@@ -147,7 +149,10 @@ class Worker:
         try:
             if job["kind"] == "extract_receipt":
                 process_photo_receipt(
-                    self.settings.database_path, self.settings.storage_dir, job["receipt_id"]
+                    self.settings.database_path,
+                    self.settings.storage_dir,
+                    job["receipt_id"],
+                    engine=self.ocr_engine,
                 )
             else:
                 raise ValueError(f"unsupported job kind: {job['kind']}")

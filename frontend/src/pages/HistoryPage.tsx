@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api, type Receipt } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
 import { ledgerPath, receiptReviewPath } from "../lib/routes";
@@ -23,6 +23,9 @@ const money = (amount: number | null, currency: string) =>
 
 export function HistoryPage() {
   const { ledger, loading: ledgerLoading, error: ledgerError } = useLedger();
+  const location = useLocation();
+  const returnToBooks =
+    (location.state as { returnTo?: string } | null)?.returnTo === "/app/books";
   const [params, setParams] = useSearchParams();
 
   // URL query as source of initial search value
@@ -47,16 +50,16 @@ export function HistoryPage() {
       setDebouncedQuery(searchVal.trim());
       // Update URL query cleanly
       if (searchVal.trim()) {
-        setParams({ q: searchVal.trim() }, { replace: true });
+        setParams({ q: searchVal.trim() }, { replace: true, state: location.state });
       } else {
-        setParams({}, { replace: true });
+        setParams({}, { replace: true, state: location.state });
       }
     }, 280);
 
     return () => {
       if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
     };
-  }, [searchVal, setParams]);
+  }, [location.state, searchVal, setParams]);
 
   // Load receipts with cancellation for in-flight stale requests
   useEffect(() => {
@@ -121,6 +124,10 @@ export function HistoryPage() {
 
   return (
     <section className="history-page">
+      <Link className="back-link" to={returnToBooks ? "/app/books" : "/home"}>
+        <Icon name="arrow-left" size={16} />
+        <span>{returnToBooks ? "Kembali ke daftar buku" : "Kembali ke Beranda"}</span>
+      </Link>
       <div className="section-heading">
         <div>
           <p className="eyebrow">{ledger.name.toUpperCase()}</p>

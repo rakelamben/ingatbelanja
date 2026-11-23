@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, type Ledger } from "../lib/api";
-import { ledgerPath } from "../lib/routes";
 import { Button, Field, SelectField, Alert, Icon, LoadingState } from "../components/ui";
+import { SiSearch } from '@sargamicons/react/line';
+import { SiAddCircle } from '@sargamicons/react/fill';
+
+
+
 
 export function TrackersPage() {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
@@ -21,6 +25,15 @@ export function TrackersPage() {
     } catch {
       setError("Tidak dapat memuat daftar pelacak.");
     }
+  };
+
+  const money = (value: number | null, currency: string) => {
+    if (value == null) return "—";
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: currency === "IDR" ? 0 : 2,
+    }).format(value / (currency === "IDR" ? 1 : 100)).replace(/[\u00a0\u202f]/g, "");
   };
 
   useEffect(() => {
@@ -75,9 +88,7 @@ export function TrackersPage() {
 
   return (
     <section className="trackers-page">
-      <p className="eyebrow">RUANG BERSAMA</p>
-      <h1>Pelacak belanja.</h1>
-      <p className="muted">Bagikan satu buku bersama tanpa kehilangan kendali atas data pribadi.</p>
+      
 
       {error && (
         <Alert variant="error" onDismiss={() => setError("")} className="mt-4">
@@ -86,37 +97,55 @@ export function TrackersPage() {
       )}
 
       {loading ? (
-        <LoadingState label="Memuat daftar pelacak…" />
+        <LoadingState label="Memuat daftar buku…" />
       ) : (
-        <div className="tracker-list">
-          {ledgers.filter((ledger) => ledger.type === "tracker").length === 0 ? (
+        <div className="w-full">
+          {ledgers.length === 0 ? (
             <p className="muted text-sm text-center py-2">
-              Belum ada ruang pelacak bersama. Buat atau gabung di bawah ini.
+              Belum ada buku. Kamu bisa membuat atau bergabung dengan buku bersama di bawah ini.
             </p>
           ) : (
-            ledgers
-              .filter((ledger) => ledger.type === "tracker")
-              .map((ledger) => (
-                <Link className="tracker-card" to={ledgerPath(ledger.id)} key={ledger.id}>
-                  <span className="tracker-symbol" aria-hidden="true">
-                    <Icon name="tracker" size={20} />
-                  </span>
-                  <span>
-                    <strong>{ledger.name}</strong>
-                    <small>
-                      {ledger.member_count} anggota · {ledger.currency}
-                    </small>
-                  </span>
-                  <span className="arrow" aria-hidden="true">
-                    <Icon name="arrow-right" size={16} />
-                  </span>
-                </Link>
-              ))
+            <>
+            <div className="flex flex-row items-center gap-2 bg-olive-200 px-4 py-3 mb-4 rounded-md">
+              <div><SiSearch className="text-xl text-olive-600"/></div>
+              <input type="text" placeholder="Cari Buku" className="bg-transparent text-lg w-full pl-1"/>
+            </div>
+            <div className="grid grid-cols-2 gap-3 w-full">
+            {ledgers.map((ledger) => (
+                  <Link
+                    className="flex flex-col bg-white px-4 py-4 rounded-lg"
+                    to={`/app/books/${encodeURIComponent(ledger.id)}`}
+                    key={ledger.id}
+                  >
+                    <div className="tracker-symbol mb-3" aria-hidden="true">
+                      <Icon name="tracker" size={20} />
+                    </div>
+                    <div className="flex flex-col capitalize">
+                      <p className="text-lg font-bold text-black/50">{ledger.name}</p>
+                      <p className="text-md font-bold">
+                        {/* {ledger.type === "tracker"
+                          ? `${ledger.member_count} anggota · `
+                          : "Buku pribadi · "} */}
+                        {money(ledger.sum_spend, ledger?.currency ?? "IDR")}
+                      </p>
+                    </div>
+                  </Link>
+            ))}
+            <Link
+                  className="flex flex-col items-center justify-center gap-2 bg-(--color-accent)/20 px-4 py-4 rounded-lg"
+                  to="/app/books/create"
+                  >
+                      <SiAddCircle className="text-4xl"/>
+                      <p className="text-lg font-bold">Buat Buku</p>
+
+                  </Link>
+            </div>
+            </>
           )}
         </div>
       )}
 
-      <div className="tracker-forms">
+      {/* <div className="tracker-forms">
         <form className="compact-form" onSubmit={create}>
           <h2>Buat pelacak baru</h2>
           <Field
@@ -159,7 +188,7 @@ export function TrackersPage() {
             Gabung ke pelacak
           </Button>
         </form>
-      </div>
+      </div> */}
     </section>
   );
 }

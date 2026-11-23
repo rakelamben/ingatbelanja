@@ -66,6 +66,60 @@ def test_manual_receipt_uses_book_currency_and_item(tmp_path) -> None:
         connection.close()
 
 
+def test_manual_receipt_saves_categorized_items_with_fx_conversion(tmp_path) -> None:
+    app = make_app(tmp_path)
+    client, csrf, _ = register(app)
+    tracker = client.post(
+        "/api/v1/ledgers",
+        json={"name": "Foreign expenses", "currency": "USD"},
+        headers={"X-CSRF-Token": csrf},
+    ).json
+
+    response = client.post(
+        f"/api/v1/ledgers/{tracker['id']}/receipts/manual",
+        json={
+            "purchased_on": "2026-11-19",
+            "currency": "IDR",
+            "amount_minor": 10000,
+            "merchant_name": "Warung Pagi",
+            "fx_rate": "0.0000625",
+            "items": [
+                {
+                    "name": "Nasi",
+                    "qty_milli": 1000,
+                    "unit_price_minor": 5000,
+                    "amount_minor": 5000,
+                    "category_id": "system-food",
+                },
+                {
+                    "name": "Teh",
+                    "qty_milli": 1000,
+                    "unit_price_minor": 3000,
+                    "amount_minor": 3000,
+                    "category_id": "system-food",
+                },
+            ],
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 201
+    assert [item["amount_ledger_minor"] for item in response.json["items"]] == [31, 19]
+    connection = connect(tmp_path / "storage" / "db.sqlite3")
+    try:
+        rows = connection.execute(
+            "SELECT name, category_id, amount_minor, amount_ledger_minor "
+            "FROM line_items WHERE receipt_id = ? ORDER BY name",
+            (response.json["id"],),
+        ).fetchall()
+        assert [(row["name"], row["amount_minor"], row["amount_ledger_minor"]) for row in rows] == [
+            ("Nasi", 5000, 31),
+            ("Teh", 3000, 19),
+        ]
+    finally:
+        connection.close()
+
+
 def test_fx_cache_is_used_after_first_request(tmp_path, monkeypatch) -> None:
     app = make_app(tmp_path)
     settings = app.config["SETTINGS"]

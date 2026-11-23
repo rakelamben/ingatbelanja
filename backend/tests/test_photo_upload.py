@@ -1,9 +1,11 @@
 import io
+import json
 import uuid
 
 from app import create_app
 from app.config import Settings
 from app.db import connect, migrate
+from app.worker import Worker
 from PIL import Image
 
 
@@ -104,3 +106,31 @@ def test_photo_upload_rejects_small_or_invalid_image(tmp_path):
     )
     assert response.status_code == 422
     assert response.json["code"] == "IMAGE_TOO_SMALL"
+
+
+def test_empty_fake_ocr_result_is_not_reported_as_llm_failure(tmp_path):
+    app = make_app(tmp_path)
+    settings = app.config["SETTINGS"]
+    settings.ocr_engine = "fake"
+    client, csrf, ledger_id = register(app)
+    response = client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/photo",
+        data={"file": (io.BytesIO(image_bytes()), "receipt.jpg")},
+        headers={"Idempotency-Key": str(uuid.uuid4()), "X-CSRF-Token": csrf},
+        content_type="multipart/form-data",
+    )
+    receipt_id = response.json["id"]
+
+    assert Worker(settings, "worker-test").run_once() is True
+    connection = connect(settings.database_path)
+    try:
+        receipt = connection.execute(
+            "SELECT status, issues FROM receipts WHERE id = ?", (receipt_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+
+    issues = json.loads(receipt["issues"])
+    assert receipt["status"] == "needs_attention"
+    assert "EXTRACTION_FAILED" in issues
+    assert "LLM_UNAVAILABLE" not in issues

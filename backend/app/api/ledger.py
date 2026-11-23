@@ -91,6 +91,11 @@ def _ledger_json(connection, row):
     member_count = connection.execute(
         "SELECT COUNT(*) FROM ledger_members WHERE ledger_id = ?", (row["id"],)
     ).fetchone()[0]
+    receipts = connection.execute(
+        "SELECT * FROM receipts WHERE ledger_id = ? AND status = 'confirmed' AND deleted_at IS NULL",
+        (row["id"],),
+    ).fetchall()
+    total = sum(row["total_ledger_minor"] or 0 for row in receipts)
     return {
         "id": row["id"],
         "name": row["name"],
@@ -99,6 +104,7 @@ def _ledger_json(connection, row):
         "role": row["role"],
         "member_count": member_count,
         "created_at": row["created_at"],
+        "sum_spend": total
     }
 
 

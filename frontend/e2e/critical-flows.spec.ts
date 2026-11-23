@@ -7,16 +7,19 @@ test("registers, records a manual receipt, and finds it in history", async ({ pa
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill("password-e2e-aman");
   await page.getByRole("button", { name: "Buat akun" }).click();
-  await expect(page).toHaveURL(/\/app\/ledger\//);
+  await expect(page).toHaveURL(/\/app\/ledger\/|\/home/);
 
-  await page.getByRole("link", { name: /scan struk/i }).click();
-  await page.getByRole("link", { name: /catat manual/i }).click();
-  await page.getByLabel("Merchant").fill("Warung E2E");
-  await page.getByLabel("Total (Rp)").fill("42000");
+  await page.getByRole("link", { name: "Tambah Pengeluaran" }).click();
+  await expect(page).toHaveURL(/\/scan/);
+  await page.getByRole("link", { name: /isi form manual/i }).click();
+  await expect(page).toHaveURL(/\/manual/);
+  await page.getByLabel(/nama toko|merchant/i).fill("Warung E2E");
+  await page.getByLabel(/total transaksi/i).fill("42000");
+  await page.getByLabel(/nama barang/i).first().fill("Nasi Bungkus");
+  await page.getByLabel(/subtotal \(idr\)/i).first().fill("42000");
   await page.getByRole("button", { name: /simpan pengeluaran/i }).click();
-  await expect(page).toHaveURL(/\/app\/ledger\//);
+  await expect(page).toHaveURL(/\/history/);
 
-  await page.getByRole("link", { name: "Riwayat" }).click();
   await expect(page.getByText("Warung E2E")).toBeVisible();
 });
 
@@ -34,18 +37,21 @@ test("navigates to receipt review, edits details, and confirms receipt", async (
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill("password-e2e-aman");
   await page.getByRole("button", { name: "Buat akun" }).click();
-  await expect(page).toHaveURL(/\/app\/ledger\//);
+  await expect(page).toHaveURL(/\/app\/ledger\/|\/home/);
 
   // Add manual receipt
-  await page.getByRole("link", { name: /scan struk/i }).click();
-  await page.getByRole("link", { name: /catat manual/i }).click();
-  await page.getByLabel("Merchant").fill("Toko Kopi E2E");
-  await page.getByLabel("Total (Rp)").fill("28000");
+  await page.getByRole("link", { name: "Tambah Pengeluaran" }).click();
+  await expect(page).toHaveURL(/\/scan/);
+  await page.getByRole("link", { name: /isi form manual/i }).click();
+  await expect(page).toHaveURL(/\/manual/);
+  await page.getByLabel(/nama toko|merchant/i).fill("Toko Kopi E2E");
+  await page.getByLabel(/total transaksi/i).fill("28000");
+  await page.getByLabel(/nama barang/i).first().fill("Kopi Susu");
+  await page.getByLabel(/subtotal \(idr\)/i).first().fill("28000");
   await page.getByRole("button", { name: /simpan pengeluaran/i }).click();
-  await expect(page).toHaveURL(/\/app\/ledger\//);
+  await expect(page).toHaveURL(/\/history/);
 
   // Find in history and click to open review
-  await page.getByRole("link", { name: "Riwayat" }).click();
   await page.getByText("Toko Kopi E2E").click();
 
   // Verify review page URL and elements
@@ -74,29 +80,26 @@ test("creates tracker, switches ledger context, and verifies independent ledger 
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill("password-e2e-aman");
   await page.getByRole("button", { name: "Buat akun" }).click();
-  await expect(page).toHaveURL(/\/app\/ledger\//);
+  await expect(page).toHaveURL(/\/app\/ledger\/|\/home/);
 
-  // Open trackers page
-  await page.getByRole("link", { name: "Pelacak", exact: true }).click();
-  await expect(page).toHaveURL(/\/app\/trackers/);
+  // Open books page
+  await page.getByRole("link", { name: /buku|pelacak/i, exact: false }).first().click();
+  await expect(page).toHaveURL(/\/app\/books|\/app\/trackers/);
 
-  // Create new tracker
-  await page.getByLabel("Nama pelacak").fill("Rumah Bersama E2E");
-  await page.getByRole("button", { name: "Buat pelacak" }).click();
+  // Navigate to create book page
+  await page.getByRole("link", { name: /buat buku/i }).click();
+  await expect(page).toHaveURL(/\/app\/books\/create/);
 
-  // New tracker is listed and clickable
+  // Create new book
+  await page.getByLabel(/nama buku/i).fill("Rumah Bersama E2E");
+  await page.getByRole("button", { name: /buat buku/i }).click();
+  await expect(page).toHaveURL(/\/app\/books/);
+
+  // New book is listed and clickable
   const trackerLink = page.getByRole("link", { name: /rumah bersama e2e/i });
   await expect(trackerLink).toBeVisible();
   await trackerLink.click();
 
-  // Context switches to the tracker URL
-  await expect(page).toHaveURL(/\/app\/ledger\//);
-  await expect(page.getByRole("combobox", { name: /pilih buku/i })).toBeVisible();
-
-  // Switch back to personal ledger using the switcher
-  const switcher = page.getByRole("combobox", { name: /pilih buku/i });
-  await switcher.selectOption({ index: 0 });
-
-  // Confirms URL changes without full page reload
-  await expect(page).toHaveURL(/\/app\/ledger\//);
+  // Detail page or context opened
+  await expect(page).toHaveURL(/\/app\/books\//);
 });

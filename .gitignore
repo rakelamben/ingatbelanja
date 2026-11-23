@@ -1,18 +1,58 @@
+# Virtual environments
 .venv/
-*.py[cod]
+venv/
+env/
+
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
+.cache/
+
+# Environment files
 .env
-storage/*
-!storage/.gitkeep
-frontend/node_modules/
+.env.*
+!.env.example
+!**/.env.example
+
+# Dependencies
+node_modules/
+
+# Frontend build and test output
 frontend/dist/
+frontend/.vite/
+frontend/.vitest-cache/
 frontend/playwright-report/
 frontend/test-results/
+
+# Application storage and generated data
+storage/*
+!storage/.gitkeep
 spike/dataset/
 spike/artifacts/
 spike/__pycache__/
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and OS files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+

@@ -28,8 +28,15 @@ const defaultPermissions: LedgerPermissions = {
 
 const LedgerContext = createContext<LedgerContextValue | null>(null);
 
-export function LedgerProvider({ children }: { children: ReactNode }) {
-  const { ledgerId } = useParams<{ ledgerId: string }>();
+export function LedgerProvider({
+  children,
+  ledgerId: requestedLedgerId,
+}: {
+  children: ReactNode;
+  ledgerId?: string;
+}) {
+  const { ledgerId: routeLedgerId } = useParams<{ ledgerId: string }>();
+  const ledgerId = requestedLedgerId ?? routeLedgerId;
   const [ledger, setLedger] = useState<LedgerDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
