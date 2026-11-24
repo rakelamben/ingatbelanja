@@ -1,6 +1,7 @@
 import io
 import json
 import uuid
+from pathlib import Path
 
 from app import create_app
 from app.config import Settings
@@ -61,6 +62,30 @@ def test_photo_upload_writes_safe_variants_and_queues_job(tmp_path):
         )
     finally:
         connection.close()
+
+
+def test_photo_images_are_served_with_relative_storage_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(
+        storage_dir=Path("storage"),
+        database_path=tmp_path / "storage" / "db.sqlite3",
+    )
+    connection = connect(settings.database_path)
+    migrate(connection)
+    connection.close()
+    app = create_app(settings)
+    client, csrf, ledger_id = register(app)
+    uploaded = client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/photo",
+        data={"file": (io.BytesIO(image_bytes()), "receipt.jpg")},
+        headers={"Idempotency-Key": str(uuid.uuid4()), "X-CSRF-Token": csrf},
+        content_type="multipart/form-data",
+    )
+
+    for kind in ("processed", "original"):
+        image = client.get(f"/api/v1/receipts/{uploaded.json['id']}/image/{kind}")
+        assert image.status_code == 200
+        assert image.mimetype == "image/jpeg"
 
 
 def test_photo_upload_is_idempotent_and_detects_mismatch(tmp_path):

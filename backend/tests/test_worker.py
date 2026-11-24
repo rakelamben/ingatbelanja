@@ -1,4 +1,6 @@
+import sys
 from datetime import UTC, datetime, timedelta
+from types import ModuleType
 
 from app.config import Settings
 from app.db import connect, migrate
@@ -102,6 +104,23 @@ def test_build_ocr_engine_uses_configured_provider(tmp_path):
 
     settings.ocr_engine = "paddle"
     assert isinstance(build_ocr_engine(settings), PaddleOcrEngine)
+
+
+def test_paddle_engine_disables_mkldnn(monkeypatch):
+    observed = {}
+    paddleocr = ModuleType("paddleocr")
+
+    def fake_paddle_ocr(**kwargs):
+        observed.update(kwargs)
+        return object()
+
+    paddleocr.PaddleOCR = fake_paddle_ocr
+    monkeypatch.setitem(sys.modules, "paddleocr", paddleocr)
+
+    engine = PaddleOcrEngine(Settings(ocr_device="cpu"))
+    engine._load()
+
+    assert observed["enable_mkldnn"] is False
 
 
 def test_worker_passes_configured_engine_to_receipt_extraction(monkeypatch, tmp_path):

@@ -607,7 +607,7 @@ def receipt_image(receipt_id: str, kind: str):
         ).fetchone()
         if not image:
             raise ProblemError(404, "IMAGE_NOT_FOUND", "Receipt image not found")
-        path = current_app.config["SETTINGS"].storage_dir / image[f"{kind}_path"]
+        path = (current_app.config["SETTINGS"].storage_dir / image[f"{kind}_path"]).resolve()
         if not path.is_file():
             raise ProblemError(404, "IMAGE_NOT_FOUND", "Receipt image not found")
         return send_file(path, mimetype="image/jpeg", max_age=0)

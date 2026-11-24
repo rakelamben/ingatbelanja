@@ -57,6 +57,7 @@ class PaddleOcrEngine:
                 use_doc_orientation_classify=False,
                 use_doc_unwarping=False,
                 device=self.settings.ocr_device,
+                enable_mkldnn=False,
             )
         return self._engine
 
