@@ -15,6 +15,7 @@ vi.mock("../lib/api", async () => {
       createChatThread: vi.fn(),
       sendChat: vi.fn(),
       ackAiNotice: vi.fn(),
+      ledgers: vi.fn(),
     },
   };
 });
@@ -30,6 +31,19 @@ describe("ChatPage (Sprint D)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    vi.mocked(api.ledgers).mockResolvedValue({
+      ledgers: [
+        {
+          id: "ledger-personal",
+          name: "Dompet Pribadi",
+          type: "personal",
+          currency: "IDR",
+          role: "owner",
+          member_count: 1,
+          sum_spend: 0,
+        },
+      ],
+    });
   });
 
   it("loads existing thread and message history on mount", async () => {
@@ -189,5 +203,72 @@ describe("ChatPage (Sprint D)", () => {
     ).toBeTruthy();
     expect(select.value).toBe("th-2");
     expect(localStorage.getItem("ib_chat_thread_id")).toBe("th-2");
+  });
+
+  it("opens watched ledger checklist modal, locks personal ledger, and sends selected ledger_ids", async () => {
+    vi.mocked(api.ledgers).mockResolvedValue({
+      ledgers: [
+        {
+          id: "ledger-personal",
+          name: "Dompet Pribadi",
+          type: "personal",
+          currency: "IDR",
+          role: "owner",
+          member_count: 1,
+          sum_spend: 0,
+        },
+        {
+          id: "ledger-trip",
+          name: "Liburan",
+          type: "tracker",
+          currency: "IDR",
+          role: "owner",
+          member_count: 2,
+          sum_spend: 50000,
+        },
+      ],
+    });
+    vi.mocked(api.chatThreads).mockResolvedValue({
+      threads: [{ id: "th-1", title: "Chat", created_at: "2026-11-25", updated_at: "2026-11-25" }],
+    });
+    vi.mocked(api.chatMessages).mockResolvedValue({ messages: [] });
+    vi.mocked(api.sendChat).mockResolvedValue({
+      id: "m-1",
+      content: "Total pengeluaran Liburan Rp 50.000.",
+      blocks: [],
+      verified: true,
+    });
+
+    render(
+      <SessionProvider initialSession={mockSession}>
+        <ChatPage />
+      </SessionProvider>,
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Pilih buku yang dipantau" });
+    expect(dialog).toBeTruthy();
+
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(checkboxes[0].checked).toBe(true);
+    expect(checkboxes[0].disabled).toBe(true);
+    expect(checkboxes[1].checked).toBe(false);
+    expect(checkboxes[1].disabled).toBe(false);
+
+    fireEvent.click(checkboxes[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Terapkan" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    const input = screen.getByPlaceholderText("Tanyakan pola pengeluaranmu…");
+    fireEvent.change(input, { target: { value: "Berapa total belanja?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kirim" }));
+
+    await waitFor(() => {
+      expect(api.sendChat).toHaveBeenCalledWith(
+        "th-1",
+        "Berapa total belanja?",
+        ["ledger-personal", "ledger-trip"],
+      );
+    });
   });
 });

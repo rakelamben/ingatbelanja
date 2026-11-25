@@ -17,6 +17,9 @@ vi.mock("../lib/api", async () => {
       recentExpenseItems: vi.fn(),
       budgetStatus: vi.fn(),
       deleteBudget: vi.fn(),
+      listInvites: vi.fn(),
+      createInvite: vi.fn(),
+      revokeInvite: vi.fn(),
     },
   };
 });
@@ -239,5 +242,53 @@ describe("book details navigation", () => {
       expect(api.deleteBudget).toHaveBeenCalledWith("ledger-trip", "CUSTOM");
     });
     expect(await screen.findByText("Buat Anggaran")).toBeTruthy();
+  });
+
+  it("opens InviteFriendsModal for owner to create and revoke invites, and hides it for members", async () => {
+    vi.mocked(api.listInvites).mockResolvedValue({
+      invites: [
+        {
+          id: "inv-1",
+          code: "ABCD1234EF",
+          expires_at: "2026-12-01T00:00:00Z",
+          max_uses: 10,
+          use_count: 1,
+        },
+      ],
+    });
+    vi.mocked(api.createInvite).mockResolvedValue({
+      id: "inv-2",
+      code: "NEWCODE999",
+      expires_at: "2026-12-02T00:00:00Z",
+      max_uses: 10,
+    });
+    vi.mocked(api.revokeInvite).mockResolvedValue(undefined);
+
+    const { unmount } = renderBookRoutes();
+    fireEvent.click(await screen.findByRole("link", { name: /liburan/i }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undang teman" }));
+    expect(await screen.findByRole("dialog", { name: "Undang teman" })).toBeTruthy();
+    expect(await screen.findByText("ABCD1234EF")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Buat Kode Undangan" }));
+    expect(await screen.findByText("NEWCODE999")).toBeTruthy();
+
+    const revokeButtons = screen.getAllByRole("button", { name: "Cabut" });
+    fireEvent.click(revokeButtons[0]);
+    await waitFor(() => {
+      expect(api.revokeInvite).toHaveBeenCalledWith("ledger-trip", "inv-2");
+    });
+    unmount();
+
+    vi.mocked(api.ledger).mockResolvedValueOnce({
+      ...book,
+      role: "member",
+      members: [],
+    });
+    renderBookRoutes();
+    fireEvent.click(await screen.findByRole("link", { name: /liburan/i }));
+    expect(await screen.findByText("Pengeluaran")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Undang teman" })).toBeNull();
   });
 });

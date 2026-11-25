@@ -1,6 +1,15 @@
 export type User = { id: string; username: string; display_name: string | null };
 export type Session = { user: User; csrf_token: string; personal_ledger_id: string; ai_notice_acknowledged: boolean };
 export type Ledger = { id: string; name: string; type: "personal" | "tracker"; currency: string; role: "owner" | "member"; member_count: number, sum_spend: number};
+export type LedgerInvite = {
+  id: string;
+  code: string;
+  created_at?: string;
+  expires_at: string;
+  max_uses: number;
+  use_count?: number;
+  revoked_at?: string | null;
+};
 export type Receipt = { id: string; status: string; merchant_name: string | null; purchased_on: string | null; currency: string; total_minor: number | null; total_ledger_minor: number | null; created_by?: string; updated_at: string };
 export type ReceiptUpload = {
   id: string;
@@ -226,6 +235,21 @@ export const api = {
   receiptStatus: (id: string) => request<{ id: string; status: string; issues: string[]; updated_at: string }>(`/receipts/${id}/status`),
   createTracker: (name: string, currency: string) => request<Ledger>("/ledgers", { method: "POST", body: JSON.stringify({ name, currency }) }),
   joinTracker: (code: string) => request<{ ledger_id: string }>("/invites/join", { method: "POST", body: JSON.stringify({ code }) }),
+  listInvites: (ledgerId: string) =>
+    request<{ invites: LedgerInvite[] }>(`/ledgers/${encodeURIComponent(ledgerId)}/invites`),
+  createInvite: (
+    ledgerId: string,
+    payload: { expires_in_hours?: number; max_uses?: number } = {},
+  ) =>
+    request<LedgerInvite>(`/ledgers/${encodeURIComponent(ledgerId)}/invites`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  revokeInvite: (ledgerId: string, inviteId: string) =>
+    request<void>(
+      `/ledgers/${encodeURIComponent(ledgerId)}/invites/${encodeURIComponent(inviteId)}`,
+      { method: "DELETE" },
+    ),
   summary: (id: string, period: string) => request<Summary>(`/ledgers/${id}/reports/summary?period=${encodeURIComponent(period)}`),
   budgetStatus: (id: string, period?: string) =>
     request<{
@@ -277,5 +301,16 @@ export const api = {
   chatThreads: () => request<{ threads: { id: string; title: string; created_at: string; updated_at: string }[] }>("/chat/threads"),
   createChatThread: () => request<{ id: string; title: string }>("/chat/threads", { method: "POST" }),
   chatMessages: (id: string) => request<{ messages: { id: string; role: "user" | "assistant"; content: string; blocks?: { title: string; columns: string[]; rows: string[][] }[]; verified: boolean }[] }>(`/chat/threads/${id}/messages`),
-  sendChat: (id: string, content: string) => request<{ id: string; content: string; blocks: { title: string; columns: string[]; rows: string[][] }[]; verified: boolean }>(`/chat/threads/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
+  sendChat: (id: string, content: string, ledgerIds?: string[]) =>
+    request<{
+      id: string;
+      content: string;
+      blocks: { title: string; columns: string[]; rows: string[][] }[];
+      verified: boolean;
+    }>(`/chat/threads/${id}/messages`, {
+      method: "POST",
+      body: JSON.stringify(
+        ledgerIds ? { content, ledger_ids: ledgerIds } : { content },
+      ),
+    }),
 };

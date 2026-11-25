@@ -41,26 +41,38 @@ def period_dates(period: str, start: str | None = None, end: str | None = None) 
 
 
 class ReadOnlyTools:
-    def __init__(self, database_path, user_id: str):
+    def __init__(
+        self,
+        database_path,
+        user_id: str,
+        allowed_ledger_ids: set[str] | None = None,
+    ):
         self.database_path = database_path
         self.user_id = user_id
+        self.allowed_ledger_ids = allowed_ledger_ids
+
+    def _accessible_ledgers(self, connection):
+        rows = connection.execute(
+            "SELECT l.* FROM ledgers l JOIN ledger_members m ON m.ledger_id = l.id "
+            "WHERE m.user_id = ? AND l.deleted_at IS NULL ORDER BY l.type, l.created_at",
+            (self.user_id,),
+        ).fetchall()
+        if self.allowed_ledger_ids is not None:
+            rows = [row for row in rows if row["id"] in self.allowed_ledger_ids]
+        return rows
 
     def _ledger(self, connection, ref: str):
+        rows = self._accessible_ledgers(connection)
         if ref == "personal":
-            row = connection.execute(
-                "SELECT l.* FROM ledgers l WHERE l.owner_id = ? AND l.type = 'personal' AND l.deleted_at IS NULL",
-                (self.user_id,),
-            ).fetchone()
+            row = next((item for item in rows if item["type"] == "personal"), None)
         else:
-            rows = connection.execute(
-                "SELECT l.* FROM ledgers l JOIN ledger_members m ON m.ledger_id = l.id WHERE m.user_id = ? AND l.deleted_at IS NULL ORDER BY l.type, l.created_at",
-                (self.user_id,),
-            ).fetchall()
-            trackers = [item for item in rows if item["type"] == "tracker"]
-            try:
-                row = trackers[int(ref[1:]) - 1]
-            except (ValueError, IndexError):
-                row = None
+            row = next((item for item in rows if item["id"] == ref), None)
+            if not row and ref.startswith("t"):
+                trackers = [item for item in rows if item["type"] == "tracker"]
+                try:
+                    row = trackers[int(ref[1:]) - 1]
+                except (ValueError, IndexError):
+                    row = None
         if not row:
             raise ProblemError(404, "LEDGER_NOT_FOUND", "Ledger reference not found")
         return row
@@ -68,21 +80,23 @@ class ReadOnlyTools:
     def list_ledgers(self):
         connection = connect(self.database_path)
         try:
-            rows = connection.execute(
-                "SELECT l.* FROM ledgers l JOIN ledger_members m ON m.ledger_id = l.id WHERE m.user_id = ? AND l.deleted_at IS NULL ORDER BY l.type, l.created_at",
-                (self.user_id,),
-            ).fetchall()
-            return [
+            rows = self._accessible_ledgers(connection)
+            trackers = [
                 {
-                    "ref": "personal" if row["type"] == "personal" else f"t{index}",
+                    "ref": f"t{index}",
+                    "id": row["id"],
                     "name": _clean(row["name"]),
                     "type": row["type"],
                     "currency": row["currency_code"],
                 }
-                for index, row in enumerate([row for row in rows if row["type"] == "tracker"], 1)
-            ] + [
+                for index, row in enumerate(
+                    [row for row in rows if row["type"] == "tracker"], 1
+                )
+            ]
+            personals = [
                 {
                     "ref": "personal",
+                    "id": row["id"],
                     "name": _clean(row["name"]),
                     "type": row["type"],
                     "currency": row["currency_code"],
@@ -90,6 +104,7 @@ class ReadOnlyTools:
                 for row in rows
                 if row["type"] == "personal"
             ]
+            return personals + trackers
         finally:
             connection.close()
 
@@ -124,6 +139,8 @@ class ReadOnlyTools:
                 ).fetchall():
                     groups[row["label"]] = [row["amount"], row["count"]]
             return {
+                "ledger_name": _clean(book["name"]),
+                "currency": book["currency_code"],
                 "period_resolved": {"from": start, "to": end},
                 "total_minor": total,
                 "count": len(rows),
@@ -155,6 +172,8 @@ class ReadOnlyTools:
                 (book["id"], start, end, query),
             ).fetchall()
             return {
+                "ledger_name": _clean(book["name"]),
+                "currency": book["currency_code"],
                 "period_resolved": {"from": start, "to": end},
                 "count": len(rows),
                 "items": [
@@ -166,6 +185,64 @@ class ReadOnlyTools:
                     }
                     for row in rows
                 ],
+            }
+        finally:
+            connection.close()
+
+    def budget_status(self, ledger: str):
+        connection = connect(self.database_path)
+        try:
+            book = self._ledger(connection, ledger)
+            current_month = date.today().strftime("%Y-%m")
+            budget = connection.execute(
+                "SELECT period, limit_minor, start_date, end_date FROM budgets "
+                "WHERE ledger_id = ? AND period IN (?, 'CUSTOM', 'ALL') "
+                "ORDER BY CASE WHEN period = ? THEN 0 WHEN period = 'CUSTOM' THEN 1 ELSE 2 END, updated_at DESC LIMIT 1",
+                (book["id"], current_month, current_month),
+            ).fetchone()
+            if not budget:
+                return {
+                    "ledger_name": _clean(book["name"]),
+                    "currency": book["currency_code"],
+                    "period": None,
+                    "start_date": None,
+                    "end_date": None,
+                    "limit_minor": None,
+                    "spent_minor": 0,
+                    "ratio_bp": None,
+                    "level": "none",
+                }
+            if budget["start_date"] and budget["end_date"]:
+                start, end = budget["start_date"], budget["end_date"]
+            elif budget["period"] not in ("CUSTOM", "ALL"):
+                start, end = period_dates("this_month")
+            else:
+                start, end = "0001-01-01", "9999-12-31"
+
+            spent = connection.execute(
+                "SELECT COALESCE(SUM(total_ledger_minor), 0) FROM receipts "
+                "WHERE ledger_id = ? AND status = 'confirmed' AND deleted_at IS NULL AND purchased_on BETWEEN ? AND ?",
+                (book["id"], start, end),
+            ).fetchone()[0]
+            limit = budget["limit_minor"]
+            ratio = round(spent * 10000 / limit) if limit else None
+            level = (
+                "over"
+                if ratio is not None and ratio >= 10000
+                else "warning"
+                if ratio is not None and ratio >= 8000
+                else "normal"
+            )
+            return {
+                "ledger_name": _clean(book["name"]),
+                "currency": book["currency_code"],
+                "period": budget["period"],
+                "start_date": start,
+                "end_date": end,
+                "limit_minor": limit,
+                "spent_minor": spent,
+                "ratio_bp": ratio,
+                "level": level,
             }
         finally:
             connection.close()

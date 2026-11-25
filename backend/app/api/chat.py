@@ -22,6 +22,7 @@ class MessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str = Field(min_length=1, max_length=500)
+    ledger_ids: list[str] | None = None
 
 
 def _uid():
@@ -146,34 +147,117 @@ def send_message(thread_id):
                     "SELECT role, content FROM chat_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 6",
                     (thread_id,),
                 ).fetchall()
-            tools = ReadOnlyTools(settings.database_path, _uid())
+                member_ledgers = connection.execute(
+                    "SELECT l.id, l.type FROM ledgers l JOIN ledger_members m ON m.ledger_id = l.id "
+                    "WHERE m.user_id = ? AND l.deleted_at IS NULL",
+                    (_uid(),),
+                ).fetchall()
+            accessible_ids = {row["id"] for row in member_ledgers}
+            personal_ids = {row["id"] for row in member_ledgers if row["type"] == "personal"}
+            if payload.ledger_ids is not None:
+                allowed_ids = (set(payload.ledger_ids) & accessible_ids) | personal_ids
+            else:
+                allowed_ids = accessible_ids
+
+            tools = ReadOnlyTools(settings.database_path, _uid(), allowed_ledger_ids=allowed_ids)
+            watched_ledgers = tools.list_ledgers()
             try:
                 result = build_llm(settings).answer(
-                    payload.content, {"history": [dict(row) for row in reversed(history)]}, tools
+                    payload.content,
+                    {
+                        "history": [dict(row) for row in reversed(history)],
+                        "watched_ledgers": watched_ledgers,
+                    },
+                    tools,
                 )
             except LLMUnavailable as error:
                 raise ProblemError(503, "LLM_UNAVAILABLE", str(error)) from error
-            allowed = set(re.findall(r"\d[\d.,]*", result.get("content", "")))
+
+            def _collect_numbers(obj, target: set[str]):
+                if isinstance(obj, bool):
+                    return
+                if isinstance(obj, (int, float)):
+                    target.add(str(obj))
+                elif isinstance(obj, str):
+                    target.update(re.findall(r"\d[\d.,]*", obj))
+                elif isinstance(obj, list):
+                    for item in obj:
+                        _collect_numbers(item, target)
+                elif isinstance(obj, dict):
+                    for val in obj.values():
+                        _collect_numbers(val, target)
+
+            def _fmt_amount(amount, currency="IDR"):
+                if amount is None:
+                    return "-"
+                if currency == "IDR":
+                    return f"Rp {amount:,}".replace(",", ".")
+                return f"{currency} {amount / 100:,.2f}"
+
+            allowed: set[str] = {str(len(watched_ledgers))}
             for call in result.get("tool_calls", []):
                 tool_result = call.get("result", {})
-                allowed.update(
-                    str(value)
-                    for value in tool_result.values()
-                    if isinstance(value, (int, float, str))
-                )
+                _collect_numbers(tool_result, allowed)
+                if isinstance(tool_result, dict) and isinstance(tool_result.get("groups"), list):
+                    allowed.add(str(len(tool_result["groups"])))
+
             content, verified = verify_answer(result.get("content", ""), allowed, payload.content)
             blocks = []
+            budget_rows = []
             for call in result.get("tool_calls", []):
+                name = call.get("name")
                 value = call.get("result", {})
+                if not isinstance(value, dict):
+                    continue
+                currency = value.get("currency", "IDR")
+                ledger_name = value.get("ledger_name")
                 if value.get("groups"):
                     blocks.append(
                         {
                             "type": "table",
-                            "title": "Ringkasan",
+                            "title": f"Ringkasan — {ledger_name}" if ledger_name else "Ringkasan",
                             "columns": ["Kelompok", "Jumlah"],
-                            "rows": [[item["label"], item["display"]] for item in value["groups"]],
+                            "rows": [
+                                [item["label"], _fmt_amount(item.get("amount_minor"), currency)]
+                                for item in value["groups"]
+                            ],
                         }
                     )
+                if value.get("items"):
+                    blocks.append(
+                        {
+                            "type": "table",
+                            "title": f"Daftar Item — {ledger_name}" if ledger_name else "Daftar Item",
+                            "columns": ["Tanggal", "Item", "Toko", "Jumlah"],
+                            "rows": [
+                                [
+                                    item.get("date") or "-",
+                                    item.get("name") or "-",
+                                    item.get("merchant") or "-",
+                                    _fmt_amount(item.get("amount_minor"), currency),
+                                ]
+                                for item in value["items"]
+                            ],
+                        }
+                    )
+                if name == "get_budget_status" and value.get("limit_minor") is not None:
+                    budget_rows.append(
+                        [
+                            ledger_name or "-",
+                            _fmt_amount(value.get("spent_minor"), currency),
+                            _fmt_amount(value.get("limit_minor"), currency),
+                            str(value.get("level") or "normal"),
+                        ]
+                    )
+            if budget_rows:
+                blocks.append(
+                    {
+                        "type": "table",
+                        "title": "Status Anggaran",
+                        "columns": ["Buku", "Terpakai", "Batas", "Status"],
+                        "rows": budget_rows,
+                    }
+                )
             connection = connect(settings.database_path)
             try:
                 with tx(connection, write=True):

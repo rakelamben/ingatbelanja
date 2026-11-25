@@ -7,6 +7,7 @@ import { useSession } from "../context/SessionContext";
 import { SiAddCircle, SiLink, SiWalletDetailed } from "@sargamicons/react/fill";
 import { RecentExpenses } from "../components/RecentExpenses";
 import { BudgetCard, type BudgetCardStatus } from "../components/BudgetCard";
+import { InviteFriendsModal } from "../components/InviteFriendsModal";
 
 
 type LedgerDetail = Ledger & { members: User[] };
@@ -31,6 +32,7 @@ export function DetailBukuPage() {
     const [budgetStatus, setBudgetStatus] = useState<BudgetCardStatus | null>(null);
     const [budgetDeleting, setBudgetDeleting] = useState(false);
     const [budgetError, setBudgetError] = useState("");
+    const [inviteModalOpen, setInviteModalOpen] = useState(false);
     const [items, setItems] = useState<RecentExpenseItem[]>([]);
     const [itemsLoading, setItemsLoading] = useState(true);
     const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
@@ -190,6 +192,11 @@ export function DetailBukuPage() {
         (member) => member.id !== session?.user.id,
     );
     const hasActiveBudget = ledger.type === "tracker" && budgetStatus != null;
+    const canInvite = ledger.type === "tracker" && ledger.role === "owner";
+    const showCreateBudget = ledger.type === "tracker" && !hasActiveBudget;
+    const actionCount = 1 + (canInvite ? 1 : 0) + (showCreateBudget ? 1 : 0);
+    const gridColsClass =
+        actionCount === 3 ? "grid-cols-3" : actionCount === 2 ? "grid-cols-2" : "grid-cols-1";
 
     const handleDeleteBudget = async () => {
         if (!budgetStatus || budgetDeleting) return;
@@ -223,15 +230,7 @@ export function DetailBukuPage() {
                 <h1 className="text-3xl font-bold">{formatMoney(ledger.sum_spend, ledger.currency)}</h1>
             </div>
 
-            <div
-                className={`w-full my-3 grid gap-4 ${
-                    ledger.type === "tracker"
-                        ? hasActiveBudget
-                            ? "grid-cols-2"
-                            : "grid-cols-3"
-                        : "grid-cols-1"
-                }`}
-            >
+            <div className={`w-full my-3 grid gap-4 ${gridColsClass}`}>
                 <div className="flex flex-col items-center gap-2">
                     <Link
                         to={ledgerPath(ledger.id, "scan")}
@@ -243,31 +242,29 @@ export function DetailBukuPage() {
                     <span className="text-center  font-medium">Pengeluaran</span>
 
                 </div>
-                {ledger.type === "tracker" && (
-                    <>
-                        <div className="flex flex-col items-center gap-2">
-                            <Link
-                                to={ledgerPath(ledger.id, "scan")}
-                                state={scanReturnState(`${location.pathname}${location.search}`)}
-                                className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
-                            >
-                                <SiLink className="text-xl text-white" aria-hidden="true" />
-                            </Link>
-                            <span className="text-center font-medium">Undang teman</span>
-
-                        </div>
-                        {!hasActiveBudget && (
-                            <div className="flex flex-col items-center gap-2">
-                                <Link
-                                    to={ledgerPath(ledger.id, "budget")}
-                                    className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
-                                >
-                                    <SiWalletDetailed className="text-xl text-white" aria-hidden="true" />
-                                </Link>
-                                <span className="text-center font-medium">Buat Anggaran</span>
-                            </div>
-                        )}
-                    </>
+                {canInvite && (
+                    <div className="flex flex-col items-center gap-2">
+                        <button
+                            type="button"
+                            aria-label="Undang teman"
+                            onClick={() => setInviteModalOpen(true)}
+                            className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
+                        >
+                            <SiLink className="text-xl text-white" aria-hidden="true" />
+                        </button>
+                        <span className="text-center font-medium">Undang teman</span>
+                    </div>
+                )}
+                {showCreateBudget && (
+                    <div className="flex flex-col items-center gap-2">
+                        <Link
+                            to={ledgerPath(ledger.id, "budget")}
+                            className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
+                        >
+                            <SiWalletDetailed className="text-xl text-white" aria-hidden="true" />
+                        </Link>
+                        <span className="text-center font-medium">Buat Anggaran</span>
+                    </div>
                 )}
             </div>
 
@@ -313,6 +310,14 @@ export function DetailBukuPage() {
                 loadingMore={itemsLoadingMore}
                 onLoadMore={loadNextItems}
             />
+
+            {inviteModalOpen && (
+                <InviteFriendsModal
+                    ledgerId={ledger.id}
+                    ledgerName={ledger.name}
+                    onClose={() => setInviteModalOpen(false)}
+                />
+            )}
 
         </section>
     );

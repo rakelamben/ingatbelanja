@@ -1,17 +1,21 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, type Ledger } from "../lib/api";
-import { Alert, Icon, LoadingState } from "../components/ui";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ApiError, api, type Ledger } from "../lib/api";
+import { Alert, Button, Icon, LoadingState } from "../components/ui";
 import { SiSearch } from '@sargamicons/react/line';
-import { SiAddCircle } from '@sargamicons/react/fill';
-
-
-
+import { SiAddCircle, SiLink } from '@sargamicons/react/fill';
 
 export function TrackersPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [joinOpen, setJoinOpen] = useState(() => Boolean(searchParams.get("join")));
+  const [joinCode, setJoinCode] = useState(() => (searchParams.get("join") ?? "").toUpperCase());
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState("");
 
   const money = (value: number | null, currency: string) => {
     if (value == null) return "—";
@@ -42,10 +46,40 @@ export function TrackersPage() {
     };
   }, []);
 
+  const handleJoin = async (event: FormEvent) => {
+    event.preventDefault();
+    const cleaned = joinCode.trim().toUpperCase();
+    if (!cleaned) {
+      setJoinError("Masukkan kode undangan terlebih dahulu.");
+      return;
+    }
+    setJoinBusy(true);
+    setJoinError("");
+    try {
+      const res = await api.joinTracker(cleaned);
+      setJoinOpen(false);
+      setJoinCode("");
+      if (searchParams.has("join")) {
+        setSearchParams({}, { replace: true });
+      }
+      navigate(`/app/books/${encodeURIComponent(res.ledger_id)}`);
+    } catch (cause) {
+      setJoinError(
+        cause instanceof ApiError
+          ? cause.message
+          : "Kode undangan tidak valid atau gagal bergabung.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  };
+
+  const filteredLedgers = search.trim()
+    ? ledgers.filter((item) => item.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : ledgers;
+
   return (
     <section className="trackers-page">
-      
-
       {error && (
         <Alert variant="error" onDismiss={() => setError("")} className="mt-4">
           {error}
@@ -61,43 +95,119 @@ export function TrackersPage() {
               Belum ada buku. Kamu bisa membuat atau bergabung dengan buku bersama di bawah ini.
             </p>
           ) : (
-            <>
             <div className="flex flex-row items-center gap-2 bg-olive-200 px-4 py-3 mb-4 rounded-md">
-              <div><SiSearch className="text-xl text-olive-600"/></div>
-              <input type="text" placeholder="Cari Buku" className="bg-transparent text-lg w-full pl-1"/>
+              <div><SiSearch className="text-xl text-olive-600" /></div>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari Buku"
+                aria-label="Cari buku"
+                className="bg-transparent text-lg w-full pl-1 outline-0"
+              />
             </div>
-            <div className="grid grid-cols-2 gap-3 w-full">
-            {ledgers.map((ledger) => (
-                  <Link
-                    className="flex flex-col bg-white px-4 py-4 rounded-lg"
-                    to={`/app/books/${encodeURIComponent(ledger.id)}`}
-                    key={ledger.id}
-                  >
-                    <div className="tracker-symbol mb-3" aria-hidden="true">
-                      <Icon name="tracker" size={20} />
-                    </div>
-                    <div className="flex flex-col capitalize">
-                      <p className="text-lg font-bold text-black/50">{ledger.name}</p>
-                      <p className="text-md font-bold">
-                        {/* {ledger.type === "tracker"
-                          ? `${ledger.member_count} anggota · `
-                          : "Buku pribadi · "} */}
-                        {money(ledger.sum_spend, ledger?.currency ?? "IDR")}
-                      </p>
-                    </div>
-                  </Link>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 w-full">
+            {filteredLedgers.map((ledger) => (
+              <Link
+                className="flex flex-col bg-white px-4 py-4 rounded-lg"
+                to={`/app/books/${encodeURIComponent(ledger.id)}`}
+                key={ledger.id}
+              >
+                <div className="tracker-symbol mb-3" aria-hidden="true">
+                  <Icon name="tracker" size={20} />
+                </div>
+                <div className="flex flex-col capitalize">
+                  <p className="text-lg font-bold text-black/50">{ledger.name}</p>
+                  <p className="text-md font-bold">
+                    {money(ledger.sum_spend, ledger?.currency ?? "IDR")}
+                  </p>
+                </div>
+              </Link>
             ))}
             <Link
-                  className="flex flex-col items-center justify-center gap-2 bg-(--color-accent)/20 px-4 py-4 rounded-lg"
-                  to="/app/books/create"
-                  >
-                      <SiAddCircle className="text-4xl"/>
-                      <p className="text-lg font-bold">Buat Buku</p>
+              className="flex flex-col items-center justify-center gap-2 bg-(--color-accent)/20 px-4 py-4 rounded-lg"
+              to="/app/books/create"
+            >
+              <SiAddCircle className="text-4xl" />
+              <p className="text-lg font-bold">Buat Buku</p>
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setJoinError("");
+                setJoinOpen(true);
+              }}
+              className="flex flex-col items-center justify-center gap-2 bg-olive-200 px-4 py-4 rounded-lg"
+            >
+              <SiLink className="text-4xl" />
+              <p className="text-lg font-bold">Gabung Buku</p>
+            </button>
+          </div>
+        </div>
+      )}
 
-                  </Link>
+      {joinOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Gabung buku bersama"
+        >
+          <form onSubmit={handleJoin} className="bg-white rounded-lg w-full max-w-md p-5 shadow-lg">
+            <h2 className="text-lg font-bold">Gabung Buku Bersama</h2>
+            <p className="text-sm opacity-75 mt-1">
+              Masukkan kode undangan yang diberikan oleh pemilik buku tracker.
+            </p>
+
+            {joinError && (
+              <Alert variant="error" onDismiss={() => setJoinError("")} className="mt-3">
+                {joinError}
+              </Alert>
+            )}
+
+            <div className="mt-4">
+              <label htmlFor="join-code" className="block text-sm font-medium mb-1">
+                Kode Undangan
+              </label>
+              <input
+                id="join-code"
+                type="text"
+                required
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                placeholder="Contoh: ABCD1234EF"
+                className="bg-transparent border-2 border-(--color-accent) px-4 py-3 rounded-md w-full tracking-wider uppercase"
+              />
             </div>
-            </>
-          )}
+
+            <div className="flex flex-row gap-2 mt-5">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                disabled={joinBusy}
+                onClick={() => {
+                  setJoinOpen(false);
+                  if (searchParams.has("join")) {
+                    setSearchParams({}, { replace: true });
+                  }
+                }}
+              >
+                Tutup
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                className="flex-1"
+                loading={joinBusy}
+                disabled={joinBusy}
+              >
+                Gabung
+              </Button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, type Ledger } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Button, Alert, LiveRegion, Icon, LoadingState } from "../components/ui";
 import { SiMoreVert } from '@sargamicons/react/fill';
@@ -7,8 +7,7 @@ import { SiDownRight } from '@sargamicons/react/fill';
 import { SiLibraryBooks } from '@sargamicons/react/line';
 import { DropdownMenu } from "../components/DropdownMenu";
 
-
-
+const WATCHED_LEDGERS_KEY = "ib_chat_watched_ledgers";
 
 const QUICK_PROMPTS = [
   "Berapa total belanja bulan ini?",
@@ -23,6 +22,15 @@ type ThreadInfo = {
   created_at?: string;
   updated_at?: string;
 };
+
+function normalizeWatchedLedgers(ids: string[], ledgers: Ledger[]): string[] {
+  const validIds = new Set(ledgers.map((item) => item.id));
+  const personalIds = ledgers
+    .filter((item) => item.type === "personal")
+    .map((item) => item.id);
+  const filtered = ids.filter((id) => validIds.has(id));
+  return Array.from(new Set([...personalIds, ...filtered]));
+}
 
 export function ChatPage() {
   const { session, setSession } = useSession();
@@ -41,6 +49,48 @@ export function ChatPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [availableLedgers, setAvailableLedgers] = useState<Ledger[]>([]);
+  const [watchedLedgerIds, setWatchedLedgerIds] = useState<string[]>([]);
+  const [draftWatchedIds, setDraftWatchedIds] = useState<string[]>([]);
+  const [ledgerModalOpen, setLedgerModalOpen] = useState(false);
+
+  // Load ledgers for watched-ledger filter modal
+  useEffect(() => {
+    let cancelled = false;
+    if (!session?.ai_notice_acknowledged) return;
+
+    api
+      .ledgers()
+      .then(({ ledgers }) => {
+        if (cancelled) return;
+        setAvailableLedgers(ledgers);
+
+        let stored: string[] | null = null;
+        try {
+          const raw = localStorage.getItem(WATCHED_LEDGERS_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) stored = parsed.filter((v) => typeof v === "string");
+          }
+        } catch {
+          stored = null;
+        }
+
+        const normalized = normalizeWatchedLedgers(stored ?? [], ledgers);
+        setWatchedLedgerIds(normalized);
+        setDraftWatchedIds(normalized);
+        if (stored === null && ledgers.some((item) => item.type === "tracker")) {
+          setLedgerModalOpen(true);
+        }
+      })
+      .catch(() => {
+        // Fallback: backend still enforces personal + accessible ledgers when ledger_ids omitted
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.ai_notice_acknowledged]);
 
   // Load or persist active thread
   useEffect(() => {
@@ -199,7 +249,11 @@ export function ChatPage() {
     setError("");
 
     try {
-      const answer = await api.sendChat(thread.id, textToSend);
+      const answer = await api.sendChat(
+        thread.id,
+        textToSend,
+        watchedLedgerIds.length ? watchedLedgerIds : undefined,
+      );
       setMessages((current) => [
         ...current,
         {
@@ -383,13 +437,25 @@ export function ChatPage() {
             disabled={busy || initialLoading}
             className="bg-olive-200 px-3 py-3 w-full h-full rounded-md"
           />
-          <div
-            className="bg-olive-300  px-4 rounded-md grid place-items-center"
+          <button
+            type="button"
+            aria-label="Pilih buku yang dipantau"
+            onClick={() => {
+              setDraftWatchedIds(watchedLedgerIds);
+              setLedgerModalOpen(true);
+            }}
+            className="relative bg-olive-300 px-4 rounded-md grid place-items-center"
           >
-            <SiLibraryBooks className="text-2xl" />
-          </div>
+            <SiLibraryBooks className="text-2xl" aria-hidden="true" />
+            {watchedLedgerIds.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-(--color-accent) text-white text-xs font-bold grid place-items-center">
+                {watchedLedgerIds.length}
+              </span>
+            )}
+          </button>
           <button
             type="submit"
+            aria-label="Kirim"
             className="bg-(--color-accent) px-4 rounded-md text-white"
             disabled={busy || initialLoading || !content.trim()}
           >
@@ -397,6 +463,84 @@ export function ChatPage() {
           </button>
         </form>
       </div>
+
+      {ledgerModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pilih buku yang dipantau"
+        >
+          <div className="bg-white rounded-lg w-full max-w-md p-5 shadow-lg">
+            <h2 className="text-lg font-bold">Buku yang Dipantau AI</h2>
+            <p className="text-sm opacity-75 mt-1">
+              Pilih buku pengeluaran yang datanya boleh dibaca oleh chatbot. Dompet pribadi selalu aktif.
+            </p>
+
+            <ul className="mt-4 divide-y divide-gray-100 max-h-64 overflow-y-auto">
+              {availableLedgers.map((item) => {
+                const isPersonal = item.type === "personal";
+                const checked = isPersonal || draftWatchedIds.includes(item.id);
+                return (
+                  <li key={item.id} className="py-3">
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <span className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={isPersonal}
+                          onChange={(event) => {
+                            if (isPersonal) return;
+                            const next = event.target.checked
+                              ? [...draftWatchedIds, item.id]
+                              : draftWatchedIds.filter((id) => id !== item.id);
+                            setDraftWatchedIds(normalizeWatchedLedgers(next, availableLedgers));
+                          }}
+                        />
+                        <span>
+                          <strong className="block text-sm">{item.name}</strong>
+                          <small className="text-xs opacity-70">
+                            {isPersonal ? "Dompet Pribadi" : "Buku Bersama"} · {item.currency}
+                          </small>
+                        </span>
+                      </span>
+                      {isPersonal && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-olive-200 font-medium">
+                          Terkunci
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="flex flex-row gap-2 mt-5">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setLedgerModalOpen(false)}
+              >
+                Tutup
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1"
+                onClick={() => {
+                  const normalized = normalizeWatchedLedgers(draftWatchedIds, availableLedgers);
+                  setWatchedLedgerIds(normalized);
+                  localStorage.setItem(WATCHED_LEDGERS_KEY, JSON.stringify(normalized));
+                  setLedgerModalOpen(false);
+                }}
+              >
+                Terapkan
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

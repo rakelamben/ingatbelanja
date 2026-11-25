@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import httpx
 
 
@@ -13,71 +14,179 @@ class NoneLLM:
         raise LLMUnavailable("LLM is unavailable")
 
 
+def _format_amount(amount_minor: int | None, currency: str = "IDR") -> str:
+    if amount_minor is None:
+        return "-"
+    if currency == "IDR":
+        return f"Rp {amount_minor:,}".replace(",", ".")
+    return f"{currency} {amount_minor / 100:,.2f}"
+
+
+def _detect_period(q: str) -> str:
+    if "kemarin" in q:
+        return "yesterday"
+    if "hari ini" in q:
+        return "today"
+    if "bulan lalu" in q:
+        return "last_month"
+    if "minggu" in q or "7 hari" in q:
+        return "last_7_days"
+    if "30 hari" in q:
+        return "last_30_days"
+    return "this_month"
+
+
+def _detect_group_by(q: str) -> str:
+    if "kategori" in q:
+        return "category"
+    if "merchant" in q or "toko" in q:
+        return "merchant"
+    if "hari" in q or "harian" in q or "rata-rata" in q:
+        return "day"
+    return "none"
+
+
+def classify_intent(question: str) -> dict[str, str]:
+    q = question.casefold().strip()
+    period = _detect_period(q)
+    group_by = _detect_group_by(q)
+
+    if any(
+        phrase in q
+        for phrase in ("daftar buku", "buku apa", "daftar dompet", "dompet apa", "ledger yang")
+    ):
+        return {"intent": "list_ledgers", "period": period, "group_by": group_by, "keyword": ""}
+
+    if any(
+        word in q
+        for word in ("anggaran", "budget", "limit", "batas pengeluaran", "sisa limit")
+    ):
+        return {"intent": "budget_status", "period": period, "group_by": group_by, "keyword": ""}
+
+    if any(word in q for word in ("cari ", "pernah beli", "harga ")):
+        match = re.search(r"(?:cari|pernah beli|harga)\s+([a-z0-9\s-]{1,40})", q)
+        kw = (match.group(1).strip().split()[0] if match and match.group(1).strip() else "item")[:40]
+        return {"intent": "search_items", "period": period, "group_by": group_by, "keyword": kw}
+
+    if any(
+        word in q
+        for word in (
+            "belanja",
+            "pengeluaran",
+            "struk",
+            "total",
+            "makan",
+            "item",
+            "kategori",
+            "toko",
+            "merchant",
+            "hari",
+            "kemarin",
+            "minggu",
+            "bulan",
+            "rata-rata",
+            "bandingkan",
+        )
+    ):
+        return {
+            "intent": "spending_summary",
+            "period": period,
+            "group_by": group_by,
+            "keyword": "",
+        }
+
+    if any(
+        word in q
+        for word in ("halo", "hai", "hi", "selamat", "terima kasih", "makasih", "bantuan", "help")
+    ):
+        return {"intent": "greeting", "period": period, "group_by": group_by, "keyword": ""}
+
+    return {"intent": "out_of_scope", "period": period, "group_by": group_by, "keyword": ""}
+
+
 class FakeLLM:
     def answer(self, question, context, tools):
-        q = question.casefold()
-        if not any(
-            word in q
-            for word in (
-                "belanja",
-                "pengeluaran",
-                "struk",
-                "total",
-                "makan",
-                "item",
-                "kategori",
-                "toko",
-                "merchant",
-                "hari",
-                "kemarin",
-                "minggu",
-            )
-        ):
+        classified = classify_intent(question)
+        intent = classified["intent"]
+        period = classified["period"]
+        group_by = classified["group_by"]
+
+        if intent == "greeting":
             return {
-                "content": "Aku hanya bisa membantu membaca data pengeluaran.",
+                "content": (
+                    "Halo! Aku bisa membantumu mengecek total pengeluaran, kategori terbesar, "
+                    "pencarian item, dan status anggaran dari buku yang sedang dipantau."
+                ),
                 "tool_calls": [],
             }
 
-        # Determine period
-        period = "this_month"
-        if "kemarin" in q:
-            period = "yesterday"
-        elif "hari ini" in q:
-            period = "today"
-        elif "bulan lalu" in q:
-            period = "last_month"
-        elif "minggu" in q or "7 hari" in q:
-            period = "last_7_days"
-        elif "30 hari" in q:
-            period = "last_30_days"
-
-        # Determine grouping
-        group_by = "none"
-        if "kategori" in q:
-            group_by = "category"
-        elif "merchant" in q or "toko" in q:
-            group_by = "merchant"
-        elif "hari" in q or "harian" in q:
-            group_by = "day"
-
-        # If keyword search requested
-        if "cari" in q:
-            kw = q.split("cari")[-1].strip()
-            kw = kw.split()[0] if kw else "item"
-            res = tools.search_items("personal", kw[:40], period)
+        if intent == "out_of_scope":
             return {
-                "content": f"Ditemukan {res['count']} item belanja untuk '{kw}'.",
-                "tool_calls": [{"name": "search_items", "result": res}],
+                "content": "Aku hanya bisa membantu membaca data pengeluaran dan anggaran belanjamu.",
+                "tool_calls": [],
             }
 
-        result = tools.summary("personal", period, group_by)
-        desc = f"Total pengeluaran bulan ini adalah {result['total_minor']} dari {result['count']} struk."
-        if result.get("groups"):
-            desc += f" Terdapat {len(result['groups'])} kelompok data."
-        return {
-            "content": desc,
-            "tool_calls": [{"name": "get_spending_summary", "result": result}],
-        }
+        ledgers = tools.list_ledgers()
+        if intent == "list_ledgers":
+            names = ", ".join(item["name"] for item in ledgers) or "-"
+            return {
+                "content": f"Saat ini aku memantau {len(ledgers)} buku: {names}.",
+                "tool_calls": [{"name": "list_ledgers", "result": {"ledgers": ledgers}}],
+            }
+
+        if intent == "budget_status":
+            calls = []
+            parts = []
+            for book in ledgers:
+                res = tools.budget_status(book["ref"])
+                calls.append({"name": "get_budget_status", "result": res})
+                if res["limit_minor"] is not None:
+                    parts.append(
+                        f"{res['ledger_name']}: terpakai {_format_amount(res['spent_minor'], res['currency'])} "
+                        f"dari batas {_format_amount(res['limit_minor'], res['currency'])} ({res['level']})"
+                    )
+            content = (
+                "Status anggaran saat ini: " + "; ".join(parts) + "."
+                if parts
+                else "Belum ada batas anggaran aktif pada buku yang dipantau."
+            )
+            return {"content": content, "tool_calls": calls}
+
+        if intent == "search_items":
+            kw = classified["keyword"] or "item"
+            calls = []
+            total_count = 0
+            for book in ledgers:
+                res = tools.search_items(book["ref"], kw, period)
+                calls.append({"name": "search_items", "result": res})
+                total_count += res["count"]
+            return {
+                "content": f"Ditemukan {total_count} item belanja untuk '{kw}'.",
+                "tool_calls": calls,
+            }
+
+        calls = []
+        summaries = []
+        for book in ledgers:
+            res = tools.summary(book["ref"], period, group_by)
+            calls.append({"name": "get_spending_summary", "result": res})
+            summaries.append(res)
+
+        if len(summaries) == 1:
+            only = summaries[0]
+            desc = (
+                f"Total pengeluaran di {only['ledger_name']} adalah "
+                f"{_format_amount(only['total_minor'], only['currency'])} dari {only['count']} struk."
+            )
+            if only.get("groups"):
+                desc += f" Terdapat {len(only['groups'])} kelompok data."
+        else:
+            details = "; ".join(
+                f"{s['ledger_name']}: {_format_amount(s['total_minor'], s['currency'])} ({s['count']} struk)"
+                for s in summaries
+            )
+            desc = f"Ringkasan pengeluaran dari {len(summaries)} buku yang dipantau — {details}."
+        return {"content": desc, "tool_calls": calls}
 
 
 GROQ_CHAT_TOOLS = [
@@ -156,8 +265,26 @@ GROQ_CHAT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_budget_status",
+            "description": "Melihat status batas anggaran (limit) dan total terpakai pada buku pengeluaran.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ledger": {
+                        "type": "string",
+                        "description": "Rujukan buku pengeluaran ('personal', 't1', dll).",
+                        "default": "personal",
+                    },
+                },
+                "required": ["ledger"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_ledgers",
-            "description": "Melihat daftar buku pengeluaran milik pengguna.",
+            "description": "Melihat daftar buku pengeluaran yang sedang dipantau pengguna.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -175,14 +302,28 @@ class GroqLLM:
         if not self.settings.groq_api_key:
             raise LLMUnavailable("Groq API key is missing")
 
+        classified = classify_intent(question)
+        if classified["intent"] == "out_of_scope":
+            return {
+                "content": "Aku hanya bisa membantu membaca data pengeluaran dan anggaran belanjamu.",
+                "tool_calls": [],
+            }
+
+        watched = context.get("watched_ledgers") or tools.list_ledgers()
+        watched_desc = ", ".join(
+            f"{item['ref']} ({item['name']}, {item['currency']})" for item in watched
+        )
+
         system_instruction = (
             "Kamu adalah asisten keuangan cerdas IngatBelanjaan. "
             "Tugasmu membantu pengguna melihat dan memahami data pengeluaran mereka secara akurat.\n"
+            f"Buku yang sedang dipantau pengguna: {watched_desc}.\n"
+            f"Perkiraan intent pertanyaan: {classified['intent']} (periode: {classified['period']}, group_by: {classified['group_by']}).\n"
             "Aturan penting:\n"
-            "1. Selalu gunakan tool yang tersedia untuk mengambil data pengeluaran riil. Jangan mengarang angka atau data.\n"
-            "2. Gunakan Bahasa Indonesia yang sopan, ramah, dan ringkas.\n"
-            "3. Salin nilai atau angka dari hasil tool secara persis apa adanya.\n"
-            "4. Rujukan buku default adalah 'personal'.\n"
+            "1. Selalu gunakan tool yang tersedia untuk mengambil data riil dari buku yang dipantau. Jangan mengarang angka atau data.\n"
+            "2. Jika lebih dari 1 buku dipantau dan pengguna tidak menyebut buku tertentu, panggil tool untuk buku-buku yang dipantau lalu rangkum per buku.\n"
+            "3. Gunakan Bahasa Indonesia yang sopan, ramah, dan ringkas.\n"
+            "4. Salin nilai atau angka dari hasil tool secara akurat.\n"
         )
 
         messages = [{"role": "system", "content": system_instruction}]
@@ -201,26 +342,35 @@ class GroqLLM:
         }
 
         try:
-            response = httpx.post(
-                f"{self.settings.groq_base_url}/chat/completions",
-                headers=headers,
-                json={
+            executed_tools = []
+            max_rounds = max(1, int(getattr(self.settings, "llm_max_tool_calls", 5)))
+            for round_idx in range(max_rounds + 1):
+                body = {
                     "model": self.settings.groq_model,
                     "messages": messages,
-                    "tools": GROQ_CHAT_TOOLS,
-                    "tool_choice": "auto",
                     "max_tokens": self.settings.llm_max_output_tokens,
-                },
-                timeout=self.settings.llm_timeout_s,
-            )
-            response.raise_for_status()
-            choice = response.json()["choices"][0]
-            message = choice["message"]
+                }
+                if round_idx < max_rounds:
+                    body["tools"] = GROQ_CHAT_TOOLS
+                    body["tool_choice"] = "auto"
 
-            tool_calls = message.get("tool_calls") or []
-            executed_tools = []
+                response = httpx.post(
+                    f"{self.settings.groq_base_url}/chat/completions",
+                    headers=headers,
+                    json=body,
+                    timeout=self.settings.llm_timeout_s,
+                )
+                response.raise_for_status()
+                choice = response.json()["choices"][0]
+                message = choice["message"]
+                tool_calls = message.get("tool_calls") or []
 
-            if tool_calls:
+                if not tool_calls:
+                    return {
+                        "content": str(message.get("content") or "")[:4000],
+                        "tool_calls": executed_tools,
+                    }
+
                 messages.append(message)
                 for call in tool_calls:
                     func_name = call.get("function", {}).get("name")
@@ -244,6 +394,10 @@ class GroqLLM:
                                 keyword=args.get("keyword", "")[:40],
                                 period=args.get("period", "this_month"),
                             )
+                        elif func_name == "get_budget_status":
+                            tool_result = tools.budget_status(
+                                ledger=args.get("ledger", "personal"),
+                            )
                         elif func_name == "list_ledgers":
                             tool_result = {"ledgers": tools.list_ledgers()}
                     except Exception as err:
@@ -259,21 +413,7 @@ class GroqLLM:
                         }
                     )
 
-                second_response = httpx.post(
-                    f"{self.settings.groq_base_url}/chat/completions",
-                    headers=headers,
-                    json={
-                        "model": self.settings.groq_model,
-                        "messages": messages,
-                        "max_tokens": self.settings.llm_max_output_tokens,
-                    },
-                    timeout=self.settings.llm_timeout_s,
-                )
-                second_response.raise_for_status()
-                final_content = second_response.json()["choices"][0]["message"]["content"]
-                return {"content": str(final_content)[:4000], "tool_calls": executed_tools}
-
-            return {"content": str(message.get("content") or "")[:4000], "tool_calls": []}
+            return {"content": "", "tool_calls": executed_tools}
 
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
             raise LLMUnavailable(f"Groq request failed: {error}") from error
@@ -285,4 +425,3 @@ def build_llm(settings):
     if settings.llm_provider == "groq":
         return GroqLLM(settings)
     return FakeLLM()
-
