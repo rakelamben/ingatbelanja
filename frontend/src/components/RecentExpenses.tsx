@@ -12,7 +12,7 @@ import {
   SiAirplaneAlt,
 } from "@sargamicons/react/fill";
 import { ErrorState, LoadingState } from "./ui";
-import { receiptReviewPath } from "../lib/routes";
+import { receiptReviewPath, receiptDetailPath } from "../lib/routes";
 import type { RecentExpenseItem } from "../lib/api";
 
 const categoryIcons: Record<string, [typeof SiGrid, string]> = {
@@ -132,7 +132,7 @@ export function RecentExpenses({
     return (
       <Link
         key={item.id}
-        to={`${receiptReviewPath(ledgerId, item.receipt_id)}?item=${encodeURIComponent(item.id)}`}
+        to={receiptDetailPath(ledgerId, item.receipt_id)}
         className="home-expense-card flex flex-row gap-4 items-center justify-between px-4 py-3"
       >
         <span className="flex flex-row items-center gap-4 min-w-0">

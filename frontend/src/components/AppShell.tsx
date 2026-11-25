@@ -203,7 +203,8 @@ export function AppShell() {
     path.endsWith("/scan/capture") ||
     /\/receipts\/[^/]+$/.test(path) ||
     path.endsWith("/app/scan") ||
-    /^\/app\/ledger\/[^/]+\/scan$/.test(path);
+    /^\/app\/ledger\/[^/]+\/scan$/.test(path) || 
+    /^\/app\/ledger\/[^/]+\/receipts\/[^/]+\/detail$/.test(path);
 
   return (
     <div className={`app-frame bg-olive-100 ${!hideBottomNav ? "pb-24" : ""}`}>

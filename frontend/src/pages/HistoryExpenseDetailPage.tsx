@@ -162,33 +162,23 @@ export function HistoryExpenseDetailPage() {
     currencies.find((item) => item.code === ledger?.currency)?.minor_unit ?? 0;
 
   return (
-    <section className="receipt-review-page">
-      <Link className="back-link" to={historyPath}>
-        <Icon name="arrow-left" size={16} />
-        <span>Kembali ke Riwayat</span>
-      </Link>
+    <section className="receipt-review-page pb-6">
 
-      <div className="review-header">
-        <div>
-          <p className="eyebrow">DETAIL PENGELUARAN</p>
-          <h1>{merchantName || "Tanpa nama merchant"}</h1>
-        </div>
-        <div className="review-badge-group">
-          <StatusBadge status={receipt.status} />
-          {permissions.canWrite && !editing && (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setError("");
-                setToastMessage("");
-                setEditing(true);
-              }}
-            >
-              <Icon name="pencil" size={16} />
-              <span>Edit</span>
-            </Button>
-          )}
-        </div>
+      <div className="flex flex-row mb-4 intems-center justify-between">
+        <StatusBadge status={receipt.status} />
+        {permissions.canWrite && !editing && (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setError("");
+              setToastMessage("");
+              setEditing(true);
+            }}
+          >
+            <Icon name="pencil" size={16} />
+            <span>Edit</span>
+          </Button>
+        )}
       </div>
 
       {error && (
