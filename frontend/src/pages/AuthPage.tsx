@@ -56,14 +56,13 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   };
 
   return (
-    <section className="auth-card" aria-labelledby="auth-title">
-      <p className="eyebrow">{isRegister ? "MULAI SEKARANG" : "SELAMAT DATANG KEMBALI"}</p>
-      <h1 id="auth-title">{isRegister ? "Buat ruang untuk belanjamu." : "Masuk ke catatanmu."}</h1>
-      <p className="muted">
+    <section className="my-auto" aria-labelledby="auth-title">
+      <p className="text-xl font-bold">{isRegister ? "Buat Akun" : "Masuk ke Akun"}</p>
+      {/* <p className="muted">
         {isRegister
           ? "Simpan pengeluaran tanpa kehilangan konteks."
           : "Lanjutkan dari tempat terakhir kamu berhenti."}
-      </p>
+      </p> */}
 
       {error && (
         <div ref={errorRef} tabIndex={-1} style={{ outline: "none", marginTop: "1rem" }}>
@@ -92,7 +91,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoComplete="username"
-          placeholder="username_kamu"
+          placeholder="Username"
         />
         <Field
           id="auth-password"
@@ -104,6 +103,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           onChange={(e) => setPassword(e.target.value)}
           autoComplete={isRegister ? "new-password" : "current-password"}
           help="Minimal 10 karakter."
+          placeholder="***********"
         />
         <Button type="submit" variant="primary" loading={busy}>
           {isRegister ? "Buat akun" : "Masuk"}

@@ -230,7 +230,16 @@ export function AppShell() {
     };
     if (path.endsWith("books/create")) return {title: "Personalisasi Buku", button2: <Link to={"/app/books"}><SiChevronLeftAlt className="text-xl"/></Link>};
     
-    if (path === "/app/account") return {title: "Akun"};
+    if (path === "/app/account") return {
+      title: "Akun",
+      button2: <button
+          type="button"
+          aria-label="Kembali"
+          onClick={() => navigate(-1)}
+        >
+          <SiClose className="text-2xl" />
+        </button>
+    };
     return {
       title: "Ingat Belanjaan",
       button: <button

@@ -28,21 +28,13 @@ export function AccountPage() {
 
   return (
     <section className="account-page">
-      <Link className="back-link" to="/app">
-        <Icon name="arrow-left" size={16} />
-        <span>Kembali ke Beranda</span>
-      </Link>
-      <p className="eyebrow">PENGATURAN AKUN</p>
-      <h1>Akunmu.</h1>
-      <p className="muted">Kelola sesi masuk dan preferensi IngatBelanjaan dari satu tempat.</p>
 
-      <article className="account-card">
+      <article className="w-full flex flex-row items-center gap-3 bg-olive-200 px-4 py-4 rounded-md mb-4">
         <span className="account-avatar" aria-hidden="true">
           {initials}
         </span>
         <div>
-          <strong>{displayName}</strong>
-          <small>@{session?.user.username}</small>
+          <strong className="text-xl">{displayName}</strong>
         </div>
       </article>
 

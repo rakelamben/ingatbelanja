@@ -284,14 +284,13 @@ export function ChatPage() {
 
   if (!session?.ai_notice_acknowledged) {
     return (
-      <section className="chat-page">
-        <p className="eyebrow">TANYA AI</p>
-        <h1>Angka dari datamu.</h1>
-        <p className="muted">
+      <section className="absolute top-1/2 -translate-y-1/2 left-0 px-3 text-center space-y-2">
+        <p className="text-2xl font-bold">Angka dari datamu.</p>
+        <p className="text-xl leading-tight">
           Tanya AI hanya membaca ringkasan pengeluaran. AI ini beroperasi dalam mode read-only dan
           tidak dapat mengubah data apapun. Persetujuanmu diperlukan sebelum memulai.
         </p>
-        <Button variant="primary" onClick={acknowledge}>
+        <Button className="mt-4" variant="primary" onClick={acknowledge}>
           Saya mengerti dan setuju
         </Button>
       </section>

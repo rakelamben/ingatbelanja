@@ -7,13 +7,9 @@ export function PublicLayout() {
         Lompat ke konten utama
       </a>
       <main id="main" tabIndex={-1} className="public-shell">
-        <div className="brand-mark">
-          <span>IB</span>
-          <div>
-            <p className="eyebrow">INGATBELANJAAN</p>
-            <p className="brand-subtitle">Pengeluaran, lebih mudah diingat.</p>
-          </div>
-        </div>
+        <p className="font-bold text-2xl text-center text-(--color-primary)">
+          IngatBelanjaan
+        </p>
         <Outlet />
       </main>
     </>
