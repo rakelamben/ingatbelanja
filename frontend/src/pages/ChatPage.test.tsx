@@ -145,4 +145,49 @@ describe("ChatPage (Sprint D)", () => {
 
     expect(screen.getByText("Terverifikasi dari data aplikasi")).toBeTruthy();
   });
+
+  it("lists session threads in the selector and switches active thread on change", async () => {
+    vi.mocked(api.chatThreads).mockResolvedValueOnce({
+      threads: [
+        { id: "th-1", title: "Belanja Harian", created_at: "2026-11-25", updated_at: "2026-11-25" },
+        { id: "th-2", title: "Liburan Bali", created_at: "2026-11-24", updated_at: "2026-11-24" },
+      ],
+    });
+    vi.mocked(api.chatMessages)
+      .mockResolvedValueOnce({ messages: [] })
+      .mockResolvedValueOnce({
+        messages: [
+          {
+            id: "m-2",
+            role: "assistant",
+            content: "Total pengeluaran Liburan Bali adalah Rp 500.000.",
+            verified: true,
+          },
+        ],
+      });
+
+    render(
+      <SessionProvider initialSession={mockSession}>
+        <ChatPage />
+      </SessionProvider>,
+    );
+
+    const select = (await screen.findByLabelText("Pilih percakapan")) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(select.value).toBe("th-1");
+    });
+    expect(screen.getByRole("option", { name: "Belanja Harian" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Liburan Bali" })).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: "th-2" } });
+
+    await waitFor(() => {
+      expect(api.chatMessages).toHaveBeenCalledWith("th-2");
+    });
+    expect(
+      await screen.findByText("Total pengeluaran Liburan Bali adalah Rp 500.000."),
+    ).toBeTruthy();
+    expect(select.value).toBe("th-2");
+    expect(localStorage.getItem("ib_chat_thread_id")).toBe("th-2");
+  });
 });

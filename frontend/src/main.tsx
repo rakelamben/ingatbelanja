@@ -208,7 +208,7 @@ const router = createBrowserRouter([
               { path: "/app/analytics", element: <Navigate to="/analytic" replace /> },
               { path: "/app/reports", element: <Navigate to="/analytic" replace /> },
               { path: "/app/budget", element: <ContextualLedgerRedirect suffix="budget" /> },
-              { path: "/app/chat", element: <ContextualLedgerRedirect suffix="chat" /> },
+              { path: "/app/chat", element: <ChatPage/> },
             ],
           },
         ],

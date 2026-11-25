@@ -66,6 +66,7 @@ const links: NavItemConfig[] = [
   },
   {
     suffix: "chat",
+    to: "/app/chat",
     label: "Chatbot",
     icon: <SiAiChat />,
     iconActive: <SiAiChatActive />,
@@ -203,7 +204,16 @@ export function AppShell() {
       ),
     }
     if (path.endsWith("/manual")) return {title: "Input Manual"};
-    if (path.endsWith("/chat")) return {title: "Chatbot Insight"};
+    if (path.endsWith("/chat")) return {
+      title: "Chatbot Insight",
+      button2: <button
+          type="button"
+          aria-label="Kembali"
+          onClick={() => navigate(-1)}
+        >
+          <SiClose className="text-2xl" />
+        </button>
+    };
     if (path.endsWith("/budget")) return {
       title: "Buat Anggaran",
       button2: (
@@ -244,7 +254,8 @@ export function AppShell() {
     path.endsWith("/app/scan") ||
     /^\/app\/ledger\/[^/]+\/scan$/.test(path) || 
     /^\/app\/ledger\/[^/]+\/receipts\/[^/]+\/detail$/.test(path) ||
-    /^\/app\/ledger\/[^/]+\/budget$/.test(path);
+    /^\/app\/ledger\/[^/]+\/budget$/.test(path) || 
+    path.endsWith("/app/chat");
 
   return (
     <div className={`app-frame bg-olive-100 ${!hideBottomNav ? "pb-24" : ""}`}>

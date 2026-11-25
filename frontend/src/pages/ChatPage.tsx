@@ -2,6 +2,13 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, api } from "../lib/api";
 import { useSession } from "../context/SessionContext";
 import { Button, Alert, LiveRegion, Icon, LoadingState } from "../components/ui";
+import { SiMoreVert } from '@sargamicons/react/fill';
+import { SiDownRight } from '@sargamicons/react/fill';
+import { SiLibraryBooks } from '@sargamicons/react/line';
+import { DropdownMenu } from "../components/DropdownMenu";
+
+
+
 
 const QUICK_PROMPTS = [
   "Berapa total belanja bulan ini?",
@@ -19,6 +26,7 @@ type ThreadInfo = {
 
 export function ChatPage() {
   const { session, setSession } = useSession();
+  const [threads, setThreads] = useState<ThreadInfo[]>([]);
   const [thread, setThread] = useState<ThreadInfo | null>(null);
   const [messages, setMessages] = useState<
     {
@@ -40,16 +48,19 @@ export function ChatPage() {
     const initChat = async () => {
       try {
         setInitialLoading(true);
-        const { threads } = await api.chatThreads();
+        const { threads: fetchedThreads } = await api.chatThreads();
+        let threadList: ThreadInfo[] = fetchedThreads;
         const savedId = localStorage.getItem("ib_chat_thread_id");
         let activeThread: ThreadInfo | undefined =
-          threads.find((t) => t.id === savedId) || threads[0];
+          threadList.find((t) => t.id === savedId) || threadList[0];
 
         if (!activeThread) {
           activeThread = await api.createChatThread();
+          threadList = [activeThread];
         }
 
         if (cancelled) return;
+        setThreads(threadList);
         setThread(activeThread);
         localStorage.setItem("ib_chat_thread_id", activeThread.id);
 
@@ -86,17 +97,87 @@ export function ChatPage() {
     };
   }, [session?.ai_notice_acknowledged]);
 
+  const handleSelectThread = async (threadId: string) => {
+    const selected = threads.find((item) => item.id === threadId);
+    if (!selected || selected.id === thread?.id || busy) return;
+
+    setThread(selected);
+    localStorage.setItem("ib_chat_thread_id", selected.id);
+    setError("");
+    setBusy(true);
+
+    try {
+      const msgData = await api.chatMessages(selected.id);
+      setMessages(
+        msgData.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          verified: m.verified,
+          blocks: m.blocks,
+        })),
+      );
+      setAnnouncement(`Percakapan aktif: ${selected.title}`);
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Tidak dapat memuat pesan percakapan.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleNewThread = async () => {
     try {
       setBusy(true);
       setError("");
       const newTh = await api.createChatThread();
+      setThreads((current) => [newTh, ...current]);
       setThread(newTh);
       setMessages([]);
       localStorage.setItem("ib_chat_thread_id", newTh.id);
       setAnnouncement("Percakapan baru telah dimulai.");
     } catch {
       setError("Gagal membuat percakapan baru.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteThread = async () => {
+    if (!thread) return;
+    if (!window.confirm("Hapus percakapan ini? Riwayat pesan tidak bisa dikembalikan.")) return;
+
+    try {
+      setBusy(true);
+      setError("");
+      const deletedId = thread.id;
+      const remaining = threads.filter((item) => item.id !== deletedId);
+
+      if (remaining.length > 0) {
+        const nextThread = remaining[0];
+        setThreads(remaining);
+        setThread(nextThread);
+        localStorage.setItem("ib_chat_thread_id", nextThread.id);
+        const msgData = await api.chatMessages(nextThread.id);
+        setMessages(
+          msgData.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            verified: m.verified,
+            blocks: m.blocks,
+          })),
+        );
+      } else {
+        // `send` butuh thread aktif, jadi langsung buat yang baru
+        const newTh = await api.createChatThread();
+        setThreads([newTh]);
+        setThread(newTh);
+        setMessages([]);
+        localStorage.setItem("ib_chat_thread_id", newTh.id);
+      }
+      setAnnouncement("Percakapan telah dihapus.");
+    } catch {
+      setError("Gagal menghapus percakapan.");
     } finally {
       setBusy(false);
     }
@@ -128,6 +209,15 @@ export function ChatPage() {
           blocks: answer.blocks,
         },
       ]);
+      if (thread.title === "Percakapan baru") {
+        const nextTitle = textToSend.slice(0, 60);
+        setThread((current) => (current ? { ...current, title: nextTitle } : current));
+        setThreads((current) =>
+          current.map((item) =>
+            item.id === thread.id ? { ...item, title: nextTitle } : item,
+          ),
+        );
+      }
       setAnnouncement(`Jawaban AI: ${answer.content}`);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Tanya AI sedang tidak tersedia.";
@@ -155,56 +245,63 @@ export function ChatPage() {
   }
 
   return (
-    <section className="chat-page">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">TANYA AI · READ-ONLY</p>
-          <h1>Teman melihat pola.</h1>
-        </div>
-        <Button
+    <section className="fixed inset-0 flex flex-col pt-14">
+      <div className="shrink-0 flex flex-row w-full items-center gap-2 px-4 py-3">
+        {/* <Button
           variant="secondary"
           className="small-button"
           onClick={handleNewThread}
           disabled={busy || initialLoading}
         >
-          <Icon name="plus" size={14} />
-          <span>Baru</span>
-        </Button>
+          <SiMoreVert className="text-xl" />
+        </Button> */}
+        <DropdownMenu
+          label="Menu percakapan"
+          disabled={busy || initialLoading}
+          trigger={<SiMoreVert className="text-2xl" />}
+          items={[
+            { label: "Percakapan baru", onSelect: handleNewThread },
+            {
+              label: "Hapus percakapan ini",
+              onSelect: handleDeleteThread,
+              danger: true,
+              disabled: !thread,
+            },
+          ]}
+        />
+        <select
+          aria-label="Pilih percakapan"
+          className="w-full px-4 py-3 bg-olive-200 rounded-md"
+          value={thread?.id ?? ""}
+          disabled={busy || initialLoading || threads.length === 0}
+          onChange={(event) => {
+            void handleSelectThread(event.target.value);
+          }}
+        >
+          {threads.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.title || "Percakapan baru"}
+            </option>
+          ))}
+        </select>
       </div>
 
       <LiveRegion message={announcement} level="polite" />
 
       {/* Suggested Quick Prompts */}
-      {messages.length === 0 && !initialLoading && (
-        <div className="quick-prompts-container" role="region" aria-label="Saran pertanyaan">
-          <small className="muted font-semibold block mb-2">Coba tanyakan:</small>
-          <div className="quick-prompts-grid">
-            {QUICK_PROMPTS.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                className="quick-prompt-chip"
-                onClick={() => send(undefined, prompt)}
-                disabled={busy}
-              >
-                <span>{prompt}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
-      <div className="chat-log" role="log" aria-label="Riwayat percakapan AI">
+
+      <div className="flex-1 space-y-4 min-h-0 overflow-y-auto px-4 py-4" role="log" aria-label="Riwayat percakapan AI">
         {initialLoading ? (
           <LoadingState label="Memuat riwayat percakapan…" />
         ) : messages.length === 0 ? (
-          <p className="muted chat-empty">
+          <p className="text-center my-auto px-8">
             Mulai percakapan dengan AI. Tanyakan rincian atau perbandingan dari data pengeluaranmu.
           </p>
         ) : (
           messages.map((message, index) => (
             <article
-              className={`chat-bubble ${message.role}`}
+              className={`chat-bubble ${message.role} gap-6`}
               key={`${message.role}-${index}`}
             >
               <p>{message.content}</p>
@@ -260,27 +357,46 @@ export function ChatPage() {
         </Alert>
       )}
 
-      <form className="chat-form" onSubmit={(e) => send(e)}>
-        <label className="sr-only" htmlFor="chat-input">
-          Pertanyaan untuk AI
-        </label>
-        <input
-          id="chat-input"
-          value={content}
-          maxLength={500}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Tanyakan pola pengeluaranmu…"
-          disabled={busy || initialLoading}
-        />
-        <Button
-          type="submit"
-          variant="primary"
-          loading={busy}
-          disabled={busy || initialLoading || !content.trim()}
-        >
-          Kirim
-        </Button>
-      </form>
+      <div className="shrink-0 w-full min-w-0">
+        {messages.length === 0 && !initialLoading && (
+          <div className="flex flex-row items-center gap-4 overflow-auto px-4">
+            {QUICK_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                className="bg-olive-200 px-4 py-2 rounded-full whitespace-nowrap"
+                onClick={() => send(undefined, prompt)}
+                disabled={busy}
+              >
+                <span>{prompt}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <form className="px-4 py-4 w-full flex flex-row gap-2 justify-between" onSubmit={(e) => send(e)}>
+          <input
+            id="chat-input"
+            value={content}
+            maxLength={500}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Tanyakan pola pengeluaranmu…"
+            disabled={busy || initialLoading}
+            className="bg-olive-200 px-3 py-3 w-full h-full rounded-md"
+          />
+          <div
+            className="bg-olive-300  px-4 rounded-md grid place-items-center"
+          >
+            <SiLibraryBooks className="text-2xl" />
+          </div>
+          <button
+            type="submit"
+            className="bg-(--color-accent) px-4 rounded-md text-white"
+            disabled={busy || initialLoading || !content.trim()}
+          >
+            <SiDownRight className="text-2xl" />
+          </button>
+        </form>
+      </div>
     </section>
   );
 }
