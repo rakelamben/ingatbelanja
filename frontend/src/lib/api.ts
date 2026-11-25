@@ -227,8 +227,52 @@ export const api = {
   createTracker: (name: string, currency: string) => request<Ledger>("/ledgers", { method: "POST", body: JSON.stringify({ name, currency }) }),
   joinTracker: (code: string) => request<{ ledger_id: string }>("/invites/join", { method: "POST", body: JSON.stringify({ code }) }),
   summary: (id: string, period: string) => request<Summary>(`/ledgers/${id}/reports/summary?period=${encodeURIComponent(period)}`),
-  budgetStatus: (id: string, period: string) => request<{ limit_minor: number | null; spent_minor: number; ratio_bp: number | null; level: string }>(`/ledgers/${id}/budgets/status?period=${encodeURIComponent(period)}`),
-  putBudget: (id: string, period: string, limit_minor: number) => request<{ limit_minor: number }>(`/ledgers/${id}/budgets/${period}`, { method: "PUT", body: JSON.stringify({ limit_minor }) }),
+  budgetStatus: (id: string, period?: string) =>
+    request<{
+      period: string;
+      start_date: string | null;
+      end_date: string | null;
+      limit_minor: number | null;
+      spent_minor: number;
+      ratio_bp: number | null;
+      level: string;
+    }>(
+      period
+        ? `/ledgers/${id}/budgets/status?period=${encodeURIComponent(period)}`
+        : `/ledgers/${id}/budgets/status`,
+    ),
+  listBudgets: (id: string) =>
+    request<{
+      budgets: {
+        id: string;
+        period: string;
+        limit_minor: number;
+        start_date: string | null;
+        end_date: string | null;
+        created_at: string;
+        updated_at: string;
+      }[];
+    }>(`/ledgers/${id}/budgets`),
+  putBudget: (
+    id: string,
+    period: string,
+    limit_minor: number,
+    dates?: { start_date?: string; end_date?: string },
+  ) =>
+    request<{
+      id: string;
+      period: string;
+      limit_minor: number;
+      start_date: string | null;
+      end_date: string | null;
+    }>(`/ledgers/${id}/budgets/${encodeURIComponent(period)}`, {
+      method: "PUT",
+      body: JSON.stringify({ limit_minor, ...dates }),
+    }),
+  deleteBudget: (id: string, period: string) =>
+    request<void>(`/ledgers/${id}/budgets/${encodeURIComponent(period)}`, {
+      method: "DELETE",
+    }),
   activity: (id: string) => request<{ items: { action: string; entity_type: string; username: string; created_at: string }[] }>(`/ledgers/${id}/activity`),
   chatThreads: () => request<{ threads: { id: string; title: string; created_at: string; updated_at: string }[] }>("/chat/threads"),
   createChatThread: () => request<{ id: string; title: string }>("/chat/threads", { method: "POST" }),

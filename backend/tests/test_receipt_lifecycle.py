@@ -219,3 +219,53 @@ def test_patching_foreign_receipt_recalculates_ledger_amounts(tmp_path):
     assert response.json["total_ledger_minor"] == 100
     assert response.json["fx_rate"] == "0.00005"
     assert response.json["items"][0]["amount_ledger_minor"] == 50
+
+
+def test_custom_budget_date_range_status_and_delete(tmp_path):
+    app = make_app(tmp_path)
+    client, csrf, ledger_id = register(app)
+    client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/manual",
+        json={
+            "purchased_on": "2026-11-20",
+            "currency": "IDR",
+            "amount_minor": 60000,
+            "items": [{"name": "Kopi", "amount_minor": 60000}],
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/manual",
+        json={
+            "purchased_on": "2026-11-28",
+            "currency": "IDR",
+            "amount_minor": 50000,
+            "items": [{"name": "Makan", "amount_minor": 50000}],
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    put_resp = client.put(
+        f"/api/v1/ledgers/{ledger_id}/budgets/CUSTOM",
+        json={"limit_minor": 100000, "start_date": "2026-11-01", "end_date": "2026-11-25"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert put_resp.status_code == 200
+    assert put_resp.json["start_date"] == "2026-11-01"
+    assert put_resp.json["end_date"] == "2026-11-25"
+
+    status_resp = client.get(f"/api/v1/ledgers/{ledger_id}/budgets/status")
+    assert status_resp.status_code == 200
+    assert status_resp.json["period"] == "CUSTOM"
+    assert status_resp.json["limit_minor"] == 100000
+    assert status_resp.json["spent_minor"] == 60000
+    assert status_resp.json["level"] == "normal"
+
+    del_resp = client.delete(
+        f"/api/v1/ledgers/{ledger_id}/budgets/CUSTOM",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert del_resp.status_code == 204
+    after_del = client.get(f"/api/v1/ledgers/{ledger_id}/budgets/status")
+    assert after_del.json["limit_minor"] is None
+

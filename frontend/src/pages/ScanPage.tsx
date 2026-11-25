@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useLedger } from "../context/LedgerContext";
 import { ledgerPath } from "../lib/routes";
 import { EmptyState } from "../components/ui";
@@ -6,6 +6,7 @@ import { SiAiScan, SiBallot } from "@sargamicons/react/fill";
 
 export function ScanPage() {
   const { ledger } = useLedger();
+  const location = useLocation();
 
   if (!ledger) {
     return (
@@ -28,6 +29,7 @@ export function ScanPage() {
       <div className="flex flex-col divide-y divide-gray-100 rounded-lg overflow-hidden">
         <Link
           to={ledgerPath(ledger.id, "scan/capture")}
+          state={location.state}
           className="flex flex-row items-start gap-4 bg-white px-5 py-5"
         >
           <SiAiScan className="text-4xl" aria-hidden="true" />
@@ -38,6 +40,7 @@ export function ScanPage() {
         </Link>
         <Link
           to={ledgerPath(ledger.id, "manual")}
+          state={location.state}
           className="flex flex-row items-start gap-4 bg-white px-5 py-5"
         >
           <SiBallot className="text-4xl" aria-hidden="true" />

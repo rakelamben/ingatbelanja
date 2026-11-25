@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   api,
   ApiError,
@@ -8,7 +8,7 @@ import {
   type ReceiptItem,
 } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
-import { ledgerPath } from "../lib/routes";
+import { ledgerPath, resolveExpenseCompleteTarget } from "../lib/routes";
 import { ExpenseEditor } from "../components/ExpenseEditor";
 import { Alert, Button, EmptyState, Icon, LoadingState } from "../components/ui";
 
@@ -28,6 +28,7 @@ const newItem = (): ReceiptItem => ({
 export function ManualPage() {
   const { ledger, permissions } = useLedger();
   const navigate = useNavigate();
+  const location = useLocation();
   const [merchantName, setMerchantName] = useState("");
   const [purchasedOn, setPurchasedOn] = useState(localDate);
   const [currency, setCurrency] = useState(ledger?.currency ?? "IDR");
@@ -115,7 +116,9 @@ export function ManualPage() {
           category_id: item.category_id ?? null,
         })),
       });
-      navigate(ledgerPath(ledger.id, "history"));
+      navigate(resolveExpenseCompleteTarget(location.state, ledgerPath(ledger.id, "history")), {
+        replace: true,
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Catatan gagal disimpan.");
     } finally {
@@ -168,20 +171,6 @@ export function ManualPage() {
 
   return (
     <section className="manual-page">
-      <Link
-        className="back-link"
-        to={ledgerPath(ledger.id, "scan")}
-        onClick={handleBack}
-      >
-        <Icon name="arrow-left" size={16} />
-        <span>Kembali ke pilihan input</span>
-      </Link>
-      <p className="eyebrow">CATAT PENGELUARAN</p>
-      <h1>Isi rincian belanja.</h1>
-      <p className="muted">
-        Form ini juga digunakan untuk memeriksa hasil scan struk. Pengeluaran disimpan ke buku{" "}
-        <strong>{ledger.name}</strong>.
-      </p>
 
       {error && (
         <Alert variant="error" onDismiss={() => setError("")} className="mt-4">
@@ -189,7 +178,7 @@ export function ManualPage() {
         </Alert>
       )}
 
-      <form className="expense-entry-form" onSubmit={submit}>
+      <form className="flex flex-col gap-3  pb-8" onSubmit={submit}>
         <ExpenseEditor
           merchantName={merchantName}
           onMerchantNameChange={setMerchantName}
@@ -219,6 +208,19 @@ export function ManualPage() {
         />
         <Button type="submit" variant="primary" loading={busy} disabled={busy}>
           Simpan pengeluaran
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          loading={busy}
+          disabled={busy}
+          onClick={() =>
+            navigate(resolveExpenseCompleteTarget(location.state, ledgerPath(ledger.id, "history")), {
+              replace: true,
+            })
+          }
+        >
+          Batal
         </Button>
       </form>
     </section>

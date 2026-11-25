@@ -15,6 +15,8 @@ vi.mock("../lib/api", async () => {
       ledger: vi.fn(),
       ledgers: vi.fn(),
       recentExpenseItems: vi.fn(),
+      budgetStatus: vi.fn(),
+      deleteBudget: vi.fn(),
     },
   };
 });
@@ -97,6 +99,15 @@ describe("book details navigation", () => {
       items: [],
       next_cursor: null,
     });
+    vi.mocked(api.budgetStatus).mockResolvedValue({
+      period: "2026-11",
+      start_date: null,
+      end_date: null,
+      limit_minor: null,
+      spent_minor: 0,
+      ratio_bp: null,
+      level: "normal",
+    });
   });
 
   it("opens a book's detail page when its card is clicked", async () => {
@@ -136,7 +147,7 @@ describe("book details navigation", () => {
     expect(await screen.findByText("Pengeluaran")).toBeTruthy();
     expect(screen.queryByText("Undang teman")).toBeNull();
     expect(screen.getByText("Pengeluaran").parentElement?.parentElement?.className).toContain(
-      "grid-cols-2",
+      "grid-cols-1",
     );
   });
 
@@ -198,5 +209,35 @@ describe("book details navigation", () => {
       20,
       "cursor-nov",
     );
+  });
+
+  it("hides Buat Anggaran button and renders BudgetCard when a budget is active, allowing delete", async () => {
+    vi.mocked(api.budgetStatus).mockResolvedValue({
+      period: "CUSTOM",
+      start_date: "2026-11-25",
+      end_date: "2026-11-30",
+      limit_minor: 500000,
+      spent_minor: 125000,
+      ratio_bp: 2500,
+      level: "normal",
+    });
+    vi.mocked(api.deleteBudget).mockResolvedValue(undefined);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    renderBookRoutes();
+    fireEvent.click(await screen.findByRole("link", { name: /liburan/i }));
+
+    expect(await screen.findByLabelText("Informasi target anggaran")).toBeTruthy();
+    expect(screen.queryByText("Buat Anggaran")).toBeNull();
+    expect(screen.getByRole("link", { name: "Edit Limit" }).getAttribute("href")).toBe(
+      "/app/ledger/ledger-trip/budget?edit=1",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hapus Limit" }));
+
+    await waitFor(() => {
+      expect(api.deleteBudget).toHaveBeenCalledWith("ledger-trip", "CUSTOM");
+    });
+    expect(await screen.findByText("Buat Anggaran")).toBeTruthy();
   });
 });

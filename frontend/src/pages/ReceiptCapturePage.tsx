@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
 import { ApiError, api } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
@@ -52,6 +52,7 @@ function screenshotToFile(dataUrl: string) {
 export function ReceiptCapturePage() {
   const { ledger } = useLedger();
   const navigate = useNavigate();
+  const location = useLocation();
   const webcamRef = useRef<Webcam>(null);
   const galleryInput = useRef<HTMLInputElement>(null);
   const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -105,11 +106,11 @@ export function ReceiptCapturePage() {
           return;
         }
         if (status.status !== "processing") {
-          navigate(receiptReviewPath(ledger.id, receipt.id), { replace: true });
+          navigate(receiptReviewPath(ledger.id, receipt.id), { replace: true, state: location.state });
           return;
         }
       }
-      navigate(receiptReviewPath(ledger.id, receipt.id), { replace: true });
+      navigate(receiptReviewPath(ledger.id, receipt.id), { replace: true, state: location.state });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Foto tidak dapat diunggah.");
     } finally {
@@ -282,7 +283,7 @@ export function ReceiptCapturePage() {
                 type="button"
                 variant="secondary"
                 onClick={() =>
-                  navigate(receiptReviewPath(ledger.id, pendingReceiptId), { replace: true })
+                  navigate(receiptReviewPath(ledger.id, pendingReceiptId), { replace: true, state: location.state })
                 }
               >
                 Buka tinjau struk
@@ -356,7 +357,7 @@ export function ReceiptCapturePage() {
                 type="button"
                 variant="secondary"
                 onClick={() =>
-                  navigate(receiptReviewPath(ledger.id, pendingReceiptId), { replace: true })
+                  navigate(receiptReviewPath(ledger.id, pendingReceiptId), { replace: true, state: location.state })
                 }
               >
                 Buka tinjau struk

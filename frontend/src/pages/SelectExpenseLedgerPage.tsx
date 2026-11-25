@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, type Ledger } from "../lib/api";
-import { ledgerPath } from "../lib/routes";
+import { ledgerPath, scanReturnState } from "../lib/routes";
 import { Alert, EmptyState, LoadingState } from "../components/ui";
 import { SiLibraryBooks } from '@sargamicons/react/line';
 
@@ -68,6 +68,7 @@ export function SelectExpenseLedgerPage() {
             key={ledger.id}
             className="px-5 py-5 bg-white flex flex-row gap-4"
             to={ledgerPath(ledger.id, "scan")}
+            state={scanReturnState("/app/scan")}
           >
             <span className="tracker-symbol" aria-hidden="true">
               <SiLibraryBooks />

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { SiAddCircle, SiRemove } from "@sargamicons/react/fill";
 import { useLedger } from "../context/LedgerContext";
 import { useLedgerSelection } from "../context/LedgerSelectionContext";
 import { api, type RecentExpenseItem, type Summary } from "../lib/api";
-import { ledgerPath } from "../lib/routes";
+import { ledgerPath, scanReturnState } from "../lib/routes";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui";
 import { LedgerSwitcher } from "../components/LedgerSwitcher";
 import { RecentExpenses } from "../components/RecentExpenses";
@@ -25,6 +25,7 @@ const currentMonth = () => {
 };
 
 export function HomePage() {
+  const location = useLocation();
   const { ledger, loading: ledgerLoading, error: ledgerError } = useLedger();
   const { setHomeLedgerId } = useLedgerSelection();
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -123,6 +124,7 @@ export function HomePage() {
       <div className="w-full my-3">
         <Link
           to={ledgerPath(ledger.id, "scan")}
+          state={scanReturnState(`${location.pathname}${location.search}`)}
           className="flex rounded-full flex-row gap-2 items-center bg-[#EFEFE7] px-3 py-2 w-full"
         >
           <SiAddCircle className="text-xl" aria-hidden="true" />

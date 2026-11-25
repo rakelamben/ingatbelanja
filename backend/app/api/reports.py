@@ -21,17 +21,15 @@ class BudgetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     limit_minor: int = Field(ge=0)
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 def _uid():
     return g.current_user["user_id"]
 
 
-def _period():
-    today = date.today()
-    if request.args.get("from") and request.args.get("to"):
-        return request.args["from"], request.args["to"]
-    value = request.args.get("period") or today.strftime("%Y-%m")
+def _month_bounds(value: str) -> tuple[str, str]:
     try:
         first = date.fromisoformat(f"{value}-01")
     except ValueError as error:
@@ -42,6 +40,14 @@ def _period():
         first.year + (first.month == 12), 1 if first.month == 12 else first.month + 1, 1
     )
     return first.isoformat(), (next_month - timedelta(days=1)).isoformat()
+
+
+def _period():
+    today = date.today()
+    if request.args.get("from") and request.args.get("to"):
+        return request.args["from"], request.args["to"]
+    value = request.args.get("period") or today.strftime("%Y-%m")
+    return _month_bounds(value)
 
 
 def _json_value(value):
@@ -133,7 +139,7 @@ def list_budgets(ledger_id: str):
                 "budgets": [
                     dict(row)
                     for row in connection.execute(
-                        "SELECT id, period, limit_minor, created_at, updated_at FROM budgets WHERE ledger_id = ? ORDER BY period",
+                        "SELECT id, period, limit_minor, start_date, end_date, created_at, updated_at FROM budgets WHERE ledger_id = ? ORDER BY updated_at DESC, period",
                         (ledger_id,),
                     ).fetchall()
                 ]
@@ -150,21 +156,59 @@ def put_budget(ledger_id: str, period: str):
         payload = BudgetRequest.model_validate(request.get_json(silent=True) or {})
     except ValidationError as error:
         raise ProblemError(422, "VALIDATION_ERROR", "Request body is invalid") from error
-    if period != "ALL" and (len(period) != 7 or period[4] != "-"):
-        raise ProblemError(422, "PERIOD_INVALID", "Budget period must be YYYY-MM or ALL")
+
+    start_date = payload.start_date
+    end_date = payload.end_date
+
+    if period == "CUSTOM":
+        if not start_date or not end_date:
+            raise ProblemError(
+                422, "PERIOD_INVALID", "Custom budget requires start_date and end_date"
+            )
+        try:
+            start_obj = date.fromisoformat(start_date)
+            end_obj = date.fromisoformat(end_date)
+        except ValueError as error:
+            raise ProblemError(
+                422, "PERIOD_INVALID", "Budget dates must be YYYY-MM-DD"
+            ) from error
+        if end_obj < start_obj:
+            raise ProblemError(
+                422, "PERIOD_INVALID", "end_date must be on or after start_date"
+            )
+    elif period == "ALL":
+        if start_date and end_date:
+            try:
+                if date.fromisoformat(end_date) < date.fromisoformat(start_date):
+                    raise ProblemError(
+                        422, "PERIOD_INVALID", "end_date must be on or after start_date"
+                    )
+            except ValueError as error:
+                raise ProblemError(
+                    422, "PERIOD_INVALID", "Budget dates must be YYYY-MM-DD"
+                ) from error
+    else:
+        if len(period) != 7 or period[4] != "-":
+            raise ProblemError(
+                422, "PERIOD_INVALID", "Budget period must be YYYY-MM, CUSTOM, or ALL"
+            )
+        default_start, default_end = _month_bounds(period)
+        start_date = start_date or default_start
+        end_date = end_date or default_end
+
     connection = connect(current_app.config["SETTINGS"].database_path)
     try:
         require_member(connection, ledger_id, _uid(), owner=True)
         now = utc_now()
         with tx(connection, write=True):
             connection.execute(
-                "INSERT INTO budgets(id, ledger_id, period, limit_minor, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(ledger_id, period) DO UPDATE SET limit_minor = excluded.limit_minor, updated_at = excluded.updated_at",
-                (new_id(), ledger_id, period, payload.limit_minor, now, now),
+                "INSERT INTO budgets(id, ledger_id, period, limit_minor, start_date, end_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(ledger_id, period) DO UPDATE SET limit_minor = excluded.limit_minor, start_date = excluded.start_date, end_date = excluded.end_date, updated_at = excluded.updated_at",
+                (new_id(), ledger_id, period, payload.limit_minor, start_date, end_date, now, now),
             )
         return jsonify(
             dict(
                 connection.execute(
-                    "SELECT id, period, limit_minor, created_at, updated_at FROM budgets WHERE ledger_id = ? AND period = ?",
+                    "SELECT id, period, limit_minor, start_date, end_date, created_at, updated_at FROM budgets WHERE ledger_id = ? AND period = ?",
                     (ledger_id, period),
                 ).fetchone()
             )
@@ -195,20 +239,32 @@ def budget_status(ledger_id: str):
     try:
         require_member(connection, ledger_id, _uid())
         period = request.args.get("period") or date.today().strftime("%Y-%m")
-        start, end = f"{period}-01", f"{period}-31"
         budget = connection.execute(
-            "SELECT limit_minor FROM budgets WHERE ledger_id = ? AND period IN (?, 'ALL') ORDER BY period DESC LIMIT 1",
-            (ledger_id, period),
+            "SELECT period, limit_minor, start_date, end_date FROM budgets "
+            "WHERE ledger_id = ? AND period IN (?, 'CUSTOM', 'ALL') "
+            "ORDER BY CASE WHEN period = ? THEN 0 WHEN period = 'CUSTOM' THEN 1 ELSE 2 END, updated_at DESC LIMIT 1",
+            (ledger_id, period, period),
         ).fetchone()
+
+        if budget and budget["start_date"] and budget["end_date"]:
+            start, end = budget["start_date"], budget["end_date"]
+        elif period not in ("CUSTOM", "ALL"):
+            start, end = _month_bounds(period)
+        else:
+            start, end = "0001-01-01", "9999-12-31"
+
         spent = connection.execute(
+            # "SELECT COALESCE(SUM(total_ledger_minor), 0) FROM receipts WHERE ledger_id = ? AND status = 'confirmed' AND deleted_at IS NULL",
             "SELECT COALESCE(SUM(total_ledger_minor), 0) FROM receipts WHERE ledger_id = ? AND status = 'confirmed' AND deleted_at IS NULL AND purchased_on BETWEEN ? AND ?",
-            (ledger_id, start, end),
+            (ledger_id,start, end),
         ).fetchone()[0]
         limit = budget["limit_minor"] if budget else None
         ratio = round(spent * 10000 / limit) if limit else None
         return jsonify(
             {
-                "period": period,
+                "period": budget["period"] if budget else period,
+                "start_date": budget["start_date"] if budget else start,
+                "end_date": budget["end_date"] if budget else end,
                 "limit_minor": limit,
                 "spent_minor": spent,
                 "ratio_bp": ratio,

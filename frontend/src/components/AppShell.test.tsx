@@ -12,7 +12,10 @@ const session = {
   ai_notice_acknowledged: true,
 };
 
-function renderShell(path: string, history?: string[]) {
+function renderShell(
+  path: string,
+  history?: Array<string | { pathname: string; state?: unknown }>,
+) {
   return render(
     <SessionProvider initialSession={session}>
       <MemoryRouter initialEntries={history ?? [path]}>
@@ -126,5 +129,46 @@ describe("AppShell navigation", () => {
     expect(screen.getByText("Receipt detail content")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Navigasi utama" })).toBeNull();
     unmount3();
+  });
+
+  it("returns to /app/scan when contextual Scan was opened from /app/scan", () => {
+    renderShell("/app/ledger/ledger-personal/scan", [
+      "/app/scan",
+      { pathname: "/app/ledger/ledger-personal/scan", state: { from: "/app/scan" } },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+    expect(screen.getByText("Select book content")).toBeTruthy();
+  });
+
+  it("returns to the source page when contextual Scan was opened from a ledger-aware page", () => {
+    renderShell("/app/ledger/ledger-1/scan", [
+      "/app/books/ledger-1",
+      { pathname: "/app/ledger/ledger-1/scan", state: { from: "/app/books/ledger-1" } },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+    expect(screen.getByText("Book detail content")).toBeTruthy();
+  });
+
+  it("preserves return source when backing out of manual or capture back to Scan", () => {
+    renderShell("/app/ledger/ledger-1/manual", [
+      "/home",
+      { pathname: "/app/ledger/ledger-1/scan", state: { from: "/home" } },
+      { pathname: "/app/ledger/ledger-1/manual", state: { from: "/home" } },
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+    expect(screen.getByText("Scan content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+    expect(screen.getByText("Home content")).toBeTruthy();
+  });
+
+  it("falls back to /app/scan when contextual Scan has no source state", () => {
+    renderShell("/app/ledger/ledger-personal/scan");
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+    expect(screen.getByText("Select book content")).toBeTruthy();
   });
 });

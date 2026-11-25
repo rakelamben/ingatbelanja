@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError, api, type Ledger, type RecentExpenseItem, type User } from "../lib/api";
-import { EmptyState, LoadingState } from "../components/ui";
-import { ledgerPath } from "../lib/routes";
+import { Alert, EmptyState, LoadingState } from "../components/ui";
+import { ledgerPath, scanReturnState } from "../lib/routes";
 import { useSession } from "../context/SessionContext";
 import { SiAddCircle, SiLink, SiWalletDetailed } from "@sargamicons/react/fill";
 import { RecentExpenses } from "../components/RecentExpenses";
+import { BudgetCard, type BudgetCardStatus } from "../components/BudgetCard";
 
 
 type LedgerDetail = Ledger & { members: User[] };
@@ -21,11 +22,15 @@ function formatMoney(amount: number | null, currency: string) {
 }
 
 export function DetailBukuPage() {
+    const location = useLocation();
     const { ledgerId } = useParams();
     const { session } = useSession();
     const [ledger, setLedger] = useState<LedgerDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [budgetStatus, setBudgetStatus] = useState<BudgetCardStatus | null>(null);
+    const [budgetDeleting, setBudgetDeleting] = useState(false);
+    const [budgetError, setBudgetError] = useState("");
     const [items, setItems] = useState<RecentExpenseItem[]>([]);
     const [itemsLoading, setItemsLoading] = useState(true);
     const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
@@ -49,7 +54,27 @@ export function DetailBukuPage() {
         api
             .ledger(ledgerId)
             .then((data) => {
-                if (!cancelled) setLedger(data);
+                if (cancelled) return;
+                setLedger(data);
+                if (data.type === "tracker") {
+                    api.budgetStatus(ledgerId)
+                        .then((status) => {
+                            if (cancelled) return;
+                            if (status.limit_minor != null) {
+                                setBudgetStatus({
+                                    ...status,
+                                    limit_minor: status.limit_minor,
+                                });
+                            } else {
+                                setBudgetStatus(null);
+                            }
+                        })
+                        .catch(() => {
+                            if (!cancelled) setBudgetStatus(null);
+                        });
+                } else {
+                    setBudgetStatus(null);
+                }
             })
             .catch((cause) => {
                 if (!cancelled) {
@@ -164,6 +189,31 @@ export function DetailBukuPage() {
     const otherMembers = ledger.members.filter(
         (member) => member.id !== session?.user.id,
     );
+    const hasActiveBudget = ledger.type === "tracker" && budgetStatus != null;
+
+    const handleDeleteBudget = async () => {
+        if (!budgetStatus || budgetDeleting) return;
+        if (
+            typeof window !== "undefined" &&
+            !window.confirm("Apakah kamu yakin ingin menghapus limit anggaran ini?")
+        ) {
+            return;
+        }
+        setBudgetDeleting(true);
+        setBudgetError("");
+        try {
+            await api.deleteBudget(ledger.id, budgetStatus.period);
+            setBudgetStatus(null);
+        } catch (cause) {
+            setBudgetError(
+                cause instanceof ApiError
+                    ? cause.message
+                    : "Gagal menghapus batas anggaran.",
+            );
+        } finally {
+            setBudgetDeleting(false);
+        }
+    };
 
     return (
         <section className="">
@@ -174,11 +224,18 @@ export function DetailBukuPage() {
             </div>
 
             <div
-                className={`w-full my-3 grid gap-4 ${ledger.type === "tracker" ? "grid-cols-3" : "grid-cols-2"}`}
+                className={`w-full my-3 grid gap-4 ${
+                    ledger.type === "tracker"
+                        ? hasActiveBudget
+                            ? "grid-cols-2"
+                            : "grid-cols-3"
+                        : "grid-cols-1"
+                }`}
             >
                 <div className="flex flex-col items-center gap-2">
                     <Link
                         to={ledgerPath(ledger.id, "scan")}
+                        state={scanReturnState(`${location.pathname}${location.search}`)}
                         className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
                     >
                         <SiAddCircle className="text-xl text-white" aria-hidden="true" />
@@ -187,27 +244,49 @@ export function DetailBukuPage() {
 
                 </div>
                 {ledger.type === "tracker" && (
-                    <div className="flex flex-col items-center gap-2">
-                        <Link
-                            to={ledgerPath(ledger.id, "scan")}
-                            className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
-                        >
-                            <SiLink className="text-xl text-white" aria-hidden="true" />
-                        </Link>
-                        <span className="text-center font-medium">Undang teman</span>
+                    <>
+                        <div className="flex flex-col items-center gap-2">
+                            <Link
+                                to={ledgerPath(ledger.id, "scan")}
+                                state={scanReturnState(`${location.pathname}${location.search}`)}
+                                className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
+                            >
+                                <SiLink className="text-xl text-white" aria-hidden="true" />
+                            </Link>
+                            <span className="text-center font-medium">Undang teman</span>
 
-                    </div>
+                        </div>
+                        {!hasActiveBudget && (
+                            <div className="flex flex-col items-center gap-2">
+                                <Link
+                                    to={ledgerPath(ledger.id, "budget")}
+                                    className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
+                                >
+                                    <SiWalletDetailed className="text-xl text-white" aria-hidden="true" />
+                                </Link>
+                                <span className="text-center font-medium">Buat Anggaran</span>
+                            </div>
+                        )}
+                    </>
                 )}
-                <div className="flex flex-col items-center gap-2">
-                    <Link
-                        to={ledgerPath(ledger.id, "scan")}
-                        className="flex rounded-md flex-col gap-2 items-center bg-(--color-accent) p-4 w-fit"
-                    >
-                        <SiWalletDetailed className="text-xl text-white" aria-hidden="true" />
-                    </Link>
-                    <span className="text-center font-medium">Buat Anggaran</span>
-                </div>
             </div>
+
+            {budgetError && (
+                <Alert variant="error" onDismiss={() => setBudgetError("")} className="mt-3">
+                    {budgetError}
+                </Alert>
+            )}
+
+            {hasActiveBudget && budgetStatus && (
+                <BudgetCard
+                    ledgerId={ledger.id}
+                    currency={ledger.currency}
+                    status={budgetStatus}
+                    canManage={ledger.role === "owner"}
+                    deleting={budgetDeleting}
+                    onDelete={handleDeleteBudget}
+                />
+            )}
 
             {otherMembers.length > 0 && (
                 <ul className="flex flex-col bg-white divide-y divide-gray-100 rounded-lg overflow-hidden mt-6">

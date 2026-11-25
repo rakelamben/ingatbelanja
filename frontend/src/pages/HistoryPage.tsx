@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { Link, useLocation, useSearchParams, useParams } from "react-router-dom";
 import { ApiError, api, type Receipt, type RecentExpenseItem } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
-import { ledgerPath, receiptDetailPath } from "../lib/routes";
+import { ledgerPath, receiptDetailPath, scanReturnState } from "../lib/routes";
 import {
   EmptyState,
   LoadingState,
@@ -294,7 +294,11 @@ export function HistoryPage() {
               title={debouncedQuery ? "Tidak ada hasil pencarian" : "Belum ada catatan"}
               icon="receipt"
               action={
-                <Link className="primary-button" to={ledgerPath(ledger.id, "scan")}>
+                <Link
+                  className="primary-button"
+                  to={ledgerPath(ledger.id, "scan")}
+                  state={scanReturnState(`${location.pathname}${location.search}`)}
+                >
                   Tambah pengeluaran
                 </Link>
               }

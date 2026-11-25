@@ -1,7 +1,12 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../context/SessionContext";
 import { useLedgerSelection } from "../context/LedgerSelectionContext";
-import { ledgerPath } from "../lib/routes";
+import {
+  ledgerPath,
+  resolveExpenseCompleteTarget,
+  resolveScanBackTarget,
+  scanReturnState,
+} from "../lib/routes";
 import { type ReactNode } from "react";
 // import { Icon, type IconName } from "./ui";
 import { SiHome } from '@sargamicons/react/line';
@@ -61,7 +66,7 @@ const links: NavItemConfig[] = [
   },
   {
     suffix: "chat",
-    label: "Tanya AI",
+    label: "Chatbot",
     icon: <SiAiChat />,
     iconActive: <SiAiChatActive />,
   },
@@ -92,6 +97,10 @@ export function AppShell() {
           ? ledgerPath(routeLedgerId, "scan")
           : "/app/scan"
         : link.to ?? (ledgerId ? ledgerPath(ledgerId, link.suffix) : "/app/books"),
+    state:
+      link.label === "Scan" && routeLedgerId
+        ? scanReturnState(`${location.pathname}${location.search}`)
+        : undefined,
   }));
       
       const initials = (session?.user.display_name || session?.user.username || "U")
@@ -100,13 +109,20 @@ export function AppShell() {
       
   const topBarElement:topBarElementProps = (() => {
     if (path.includes("/receipts/")) {
+      const hasReturnTarget = !path.endsWith("/detail") && Boolean(
+        (location.state as { from?: string } | null)?.from,
+      );
       return {
         title: "Detail Pengeluaran",
         button2: (
           <button
             type="button"
             aria-label="Kembali"
-            onClick={() => navigate(-1)}
+            onClick={() =>
+              hasReturnTarget
+                ? navigate(resolveExpenseCompleteTarget(location.state, "/home"))
+                : navigate(-1)
+            }
           >
             <SiClose className="text-2xl" />
           </button>
@@ -133,7 +149,12 @@ export function AppShell() {
         <button
           type="button"
           aria-label="Kembali"
-          onClick={() => navigate(ledgerPath(ledgerId, "scan"))}
+          onClick={() =>
+            navigate(ledgerPath(ledgerId, "scan"), {
+              replace: true,
+              state: location.state,
+            })
+          }
         >
           <SiChevronLeftAlt className="text-2xl" />
         </button>
@@ -158,7 +179,7 @@ export function AppShell() {
         <button
           type="button"
           aria-label="Kembali"
-          onClick={() => navigate("/app/scan")}
+          onClick={() => navigate(resolveScanBackTarget(location.state))}
         >
           <SiChevronLeftAlt className="text-2xl" />
         </button>
@@ -170,7 +191,12 @@ export function AppShell() {
         <button
           type="button"
           aria-label="Kembali"
-          onClick={() => navigate(ledgerPath(ledgerId, "scan"))}
+          onClick={() =>
+            navigate(ledgerPath(ledgerId, "scan"), {
+              replace: true,
+              state: location.state,
+            })
+          }
         >
           <SiChevronLeftAlt className="text-2xl" />
         </button>
@@ -178,7 +204,20 @@ export function AppShell() {
     }
     if (path.endsWith("/manual")) return {title: "Input Manual"};
     if (path.endsWith("/chat")) return {title: "Chatbot Insight"};
-    if (path.endsWith("/budget")) return {title: "Anggaran"};
+    if (path.endsWith("/budget")) return {
+      title: "Buat Anggaran",
+      button2: (
+        <button
+          type="button"
+          aria-label="Kembali"
+          onClick={() =>
+            navigate(`/app/books/${encodeURIComponent(ledgerId)}`)
+          }
+        >
+          <SiChevronLeftAlt className="text-2xl" />
+        </button>
+      ),
+    };
     if (path.endsWith("books/create")) return {title: "Personalisasi Buku", button2: <Link to={"/app/books"}><SiChevronLeftAlt className="text-xl"/></Link>};
     
     if (path === "/app/account") return {title: "Akun"};
@@ -204,7 +243,8 @@ export function AppShell() {
     /\/receipts\/[^/]+$/.test(path) ||
     path.endsWith("/app/scan") ||
     /^\/app\/ledger\/[^/]+\/scan$/.test(path) || 
-    /^\/app\/ledger\/[^/]+\/receipts\/[^/]+\/detail$/.test(path);
+    /^\/app\/ledger\/[^/]+\/receipts\/[^/]+\/detail$/.test(path) ||
+    /^\/app\/ledger\/[^/]+\/budget$/.test(path);
 
   return (
     <div className={`app-frame bg-olive-100 ${!hideBottomNav ? "pb-24" : ""}`}>
@@ -229,6 +269,7 @@ export function AppShell() {
             <NavLink
               key={link.label}
               to={link.to}
+              state={link.state}
               end={link.end ?? link.suffix === ""}
               aria-label={link.label === "Scan" ? "Scan struk" : undefined}
               className={({ isActive }) => {

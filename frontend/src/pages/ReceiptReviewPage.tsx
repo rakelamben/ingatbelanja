@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   api,
   ApiError,
@@ -9,7 +9,7 @@ import {
   type ReceiptItem,
 } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
-import { ledgerPath } from "../lib/routes";
+import { ledgerPath, resolveExpenseCompleteTarget, scanReturnState } from "../lib/routes";
 import { ExpenseEditor } from "../components/ExpenseEditor";
 import { suggestReceiptCategoryId } from "../lib/receiptCategorySuggestion";
 import {
@@ -48,6 +48,7 @@ const ISSUE_LABELS: Record<string, { label: string; desc: string }> = {
 };
 
 export function ReceiptReviewPage() {
+  const location = useLocation();
   const { ledgerId, receiptId } = useParams<{ ledgerId: string; receiptId: string }>();
   const { ledger, permissions } = useLedger();
   const navigate = useNavigate();
@@ -305,7 +306,9 @@ export function ReceiptReviewPage() {
       }
 
       await api.confirmReceipt(receiptId);
-      navigate(ledgerPath(ledgerId, "history"), { replace: true });
+      navigate(resolveExpenseCompleteTarget(location.state, ledgerPath(ledgerId, "history")), {
+        replace: true,
+      });
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -341,7 +344,9 @@ export function ReceiptReviewPage() {
 
     try {
       await api.deleteReceipt(receiptId);
-      navigate(ledgerPath(ledgerId, "history"), { replace: true });
+      navigate(resolveExpenseCompleteTarget(location.state, ledgerPath(ledgerId, "history")), {
+        replace: true,
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal menghapus struk.");
     }
@@ -455,6 +460,7 @@ export function ReceiptReviewPage() {
                 {ledger && (
                   <Link
                     to={ledgerPath(ledger.id, "scan")}
+                    state={scanReturnState(`${location.pathname}${location.search}`)}
                     className="secondary-button w-full text-xs"
                   >
                     <span>Ambil Foto</span>
