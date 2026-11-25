@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, api, type Ledger } from "../lib/api";
-import { Button, Field, SelectField, Alert, Icon, LoadingState } from "../components/ui";
+import { api, type Ledger } from "../lib/api";
+import { Alert, Icon, LoadingState } from "../components/ui";
 import { SiSearch } from '@sargamicons/react/line';
 import { SiAddCircle } from '@sargamicons/react/fill';
 
@@ -11,21 +11,7 @@ import { SiAddCircle } from '@sargamicons/react/fill';
 export function TrackersPage() {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [loading, setLoading] = useState(true);
-  const [name, setName] = useState("");
-  const [currency, setCurrency] = useState("IDR");
-  const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [joining, setJoining] = useState(false);
-
-  const refresh = async () => {
-    try {
-      const data = await api.ledgers();
-      setLedgers(data.ledgers);
-    } catch {
-      setError("Tidak dapat memuat daftar pelacak.");
-    }
-  };
 
   const money = (value: number | null, currency: string) => {
     if (value == null) return "—";
@@ -55,36 +41,6 @@ export function TrackersPage() {
       cancelled = true;
     };
   }, []);
-
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    setError("");
-    setCreating(true);
-    try {
-      await api.createTracker(name, currency);
-      setName("");
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Pelacak gagal dibuat.");
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const join = async (event: FormEvent) => {
-    event.preventDefault();
-    setError("");
-    setJoining(true);
-    try {
-      await api.joinTracker(code);
-      setCode("");
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Kode undangan tidak valid.");
-    } finally {
-      setJoining(false);
-    }
-  };
 
   return (
     <section className="trackers-page">

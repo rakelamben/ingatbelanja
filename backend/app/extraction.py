@@ -10,7 +10,11 @@ from .utils import new_id, utc_now
 
 
 def process_photo_receipt(
-    database_path, storage_dir, receipt_id: str, engine: OcrEngine | None = None
+    database_path,
+    storage_dir,
+    receipt_id: str,
+    engine: OcrEngine | None = None,
+    min_mean_conf: float = 0.80,
 ) -> dict:
     """Run the deterministic S2-S4 pipeline for one queued photo receipt.
 
@@ -32,20 +36,32 @@ def process_photo_receipt(
         rows = grouped_rows(lines)
         candidate = parse_rule_candidate(rows, receipt["currency_code"])
         mean_conf = sum(line.score for line in lines) / len(lines) if lines else 0.0
-        issues = list(candidate["issues"])
-        if mean_conf < 0.80:
+        existing_issues = json.loads(receipt["issues"] or "[]")
+        issues = list(
+            dict.fromkeys(
+                [issue for issue in existing_issues if issue == "HANDWRITTEN"]
+                + candidate["issues"]
+            )
+        )
+        if mean_conf < min_mean_conf:
             issues.append("LOW_OCR_CONF")
         status = (
             "ready" if candidate["total_minor"] is not None and not issues else "needs_attention"
         )
         now = utc_now()
         with tx(connection, write=True):
+            next_attempt = connection.execute(
+                "SELECT COALESCE(MAX(attempt), 0) + 1 FROM extraction_runs WHERE receipt_id = ?",
+                (receipt_id,),
+            ).fetchone()[0]
+            merchant = candidate.get("merchant")
             connection.execute(
                 "INSERT INTO extraction_runs(id, receipt_id, attempt, pipeline_version, ocr_engine, stage_ms, "
-                "mean_ocr_conf, ocr_lines, rule_candidate, validation_result, created_at) VALUES (?, ?, 1, 'phase8', ?, '{}', ?, ?, ?, ?, ?)",
+                "mean_ocr_conf, ocr_lines, rule_candidate, validation_result, created_at) VALUES (?, ?, ?, 'phase8', ?, '{}', ?, ?, ?, ?, ?)",
                 (
                     new_id(),
                     receipt_id,
+                    next_attempt,
                     type(ocr).__name__,
                     mean_conf,
                     json.dumps([line.__dict__ for line in lines]),
@@ -55,11 +71,15 @@ def process_photo_receipt(
                 ),
             )
             connection.execute(
-                "UPDATE receipts SET status = ?, merchant = ?, merchant_norm = ?, total_minor = ?, issues = ?, updated_at = ? WHERE id = ?",
+                "UPDATE receipts SET status = ?, merchant = COALESCE(merchant, ?), "
+                "merchant_norm = COALESCE(merchant_norm, ?), "
+                "purchased_on = COALESCE(purchased_on, ?), "
+                "total_minor = COALESCE(total_minor, ?), issues = ?, updated_at = ? WHERE id = ?",
                 (
                     status,
-                    candidate.get("merchant"),
-                    (candidate.get("merchant") or "").casefold(),
+                    merchant,
+                    merchant.casefold() if merchant else None,
+                    candidate.get("purchased_on"),
                     candidate.get("total_minor"),
                     json.dumps(issues),
                     now,

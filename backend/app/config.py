@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     llm_timeout_s: int = 20
     ocr_engine: str = "fake"
     ocr_model_tier: str = "medium"
+    ocr_language: str = "en"
     ocr_device: str = "cpu"
     ocr_cpu_threads: int | None = None
     ocr_doc_preprocess: bool = False

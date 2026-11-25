@@ -53,18 +53,22 @@ class PaddleOcrEngine:
                 raise RuntimeError(
                     "PaddleOCR is not installed; use OCR_ENGINE=fake or install the optional OCR stack"
                 ) from error
-            self._engine = PaddleOCR(
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                device=self.settings.ocr_device,
-                enable_mkldnn=False,
-            )
+            kwargs = {
+                "lang": self.settings.ocr_language,
+                "use_doc_orientation_classify": self.settings.ocr_doc_preprocess,
+                "use_doc_unwarping": self.settings.ocr_doc_preprocess,
+                "device": self.settings.ocr_device,
+                "enable_mkldnn": False,
+            }
+            if self.settings.ocr_cpu_threads is not None:
+                kwargs["cpu_threads"] = self.settings.ocr_cpu_threads
+            self._engine = PaddleOCR(**kwargs)
         return self._engine
 
     def read(self, path: Path) -> list[OcrLine]:
         result = self._load().predict(str(path))
         lines: list[OcrLine] = []
-        for index, item in enumerate(result or []):
+        for item in result or []:
             texts = item.get("rec_texts", [])
             scores = item.get("rec_scores", [])
             polygons = item.get("rec_polys", [])
@@ -72,7 +76,7 @@ class PaddleOcrEngine:
                 if str(text).strip():
                     lines.append(
                         OcrLine(
-                            f"o{index + 1}",
+                            f"o{len(lines) + 1}",
                             str(text).strip(),
                             [[float(point[0]), float(point[1])] for point in poly],
                             float(score),
@@ -118,6 +122,7 @@ def grouped_rows(lines: list[OcrLine]) -> list[dict]:
             "id": f"r{index + 1}",
             "line_ids": [line.id for line in row],
             "text": " ".join(line.text for line in sorted(row, key=lambda item: item.poly[0][0])),
+            "confidence": sum(line.score for line in row) / len(row),
         }
         for index, row in enumerate(rows)
     ]

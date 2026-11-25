@@ -55,8 +55,5 @@ describe("ScanPage input choices", () => {
     expect(
       screen.getByRole("link", { name: /isi form manual/i }).getAttribute("href"),
     ).toBe("/app/ledger/ledger-1/manual");
-    expect(
-      screen.getByRole("link", { name: /kembali ke beranda/i }).getAttribute("href"),
-    ).toBe("/app/ledger/ledger-1");
   });
 });

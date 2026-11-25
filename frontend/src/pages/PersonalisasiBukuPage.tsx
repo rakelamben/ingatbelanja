@@ -1,5 +1,5 @@
 import { useState, type SubmitEvent } from "react"
-import { ApiError, api, type Ledger } from "../lib/api";
+import { ApiError, api } from "../lib/api";
 import { SiBook } from '@sargamicons/react/duotone';
 import { useNavigate } from "react-router-dom";
 

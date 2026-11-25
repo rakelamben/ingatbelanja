@@ -3,8 +3,13 @@ import { Link, useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
 import { ApiError, api } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
-import { ledgerPath, receiptReviewPath } from "../lib/routes";
-import { Alert, Button, EmptyState, Icon } from "../components/ui";
+import { receiptReviewPath } from "../lib/routes";
+import { Button, EmptyState, Icon } from "../components/ui";
+import { SiRecord } from '@sargamicons/react/duotone';
+import { BottomDialog } from "../components/BottomDialog";
+import { SiClose } from "@sargamicons/react/fill";
+
+
 
 type TorchCapabilities = MediaTrackCapabilities & { torch?: boolean };
 type TorchConstraintSet = MediaTrackConstraintSet & { torch: boolean };
@@ -53,28 +58,29 @@ export function ReceiptCapturePage() {
   const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId] = useState("");
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [pendingReceiptId, setPendingReceiptId] = useState<string | null>(null);
+  const [bottomDialogOpen, setBottomDialogOpen] = useState(false);
 
   const videoConstraints = useMemo<MediaTrackConstraints>(
     () =>
       selectedDeviceId
         ? {
-            deviceId: { exact: selectedDeviceId },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          }
+          deviceId: { exact: selectedDeviceId },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        }
         : {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
     [selectedDeviceId],
   );
 
@@ -83,10 +89,11 @@ export function ReceiptCapturePage() {
     setBusy(true);
     setError("");
     setMessage("Menyimpan foto struk…");
+    setBottomDialogOpen(true)
     try {
       const receipt = await api.uploadPhoto(ledger.id, file);
       setPendingReceiptId(receipt.id);
-      setMessage("Struk sedang diproses oleh AI…");
+      setMessage("Struk sedang diproses...");
       for (let attempt = 0; attempt < 30; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         let status;
@@ -168,23 +175,6 @@ export function ReceiptCapturePage() {
     setError(describeCameraError(cameraError));
   }, []);
 
-  const switchCamera = () => {
-    if (cameraDevices.length < 2 || !cameraStream) return;
-    const currentDeviceId =
-      cameraStream.getVideoTracks()[0]?.getSettings().deviceId ?? selectedDeviceId;
-    const currentIndex = cameraDevices.findIndex(
-      (device) => device.deviceId === currentDeviceId,
-    );
-    const nextDevice = cameraDevices[(currentIndex + 1) % cameraDevices.length];
-    if (!nextDevice) return;
-
-    setError("");
-    setCameraReady(false);
-    setCameraLoading(true);
-    setTorchOn(false);
-    setSelectedDeviceId(nextDevice.deviceId);
-  };
-
   const toggleTorch = async () => {
     const track = cameraStream?.getVideoTracks()[0];
     if (!track || !torchAvailable) return;
@@ -260,16 +250,13 @@ export function ReceiptCapturePage() {
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
             {cameraLoading && (
-              <p className="camera-preview-message" role="status">
+              <p className="camera-preview-message text-center" role="status">
                 Menghubungkan kamera…
               </p>
             )}
           </>
         ) : (
-          <div className="camera-activation-panel">
-            <Icon name="scan" size={40} />
-            <strong>Siapkan foto struk</strong>
-            <p>Kamera hanya aktif setelah kamu menekan tombol ini.</p>
+          <div className="flex flex-col absolute z-10 gap-2 items-center w-3/4 top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2">
             <Button
               type="button"
               variant="secondary"
@@ -282,32 +269,8 @@ export function ReceiptCapturePage() {
         )}
       </div>
 
-      <div className="camera-overlay absolute top-0 left-0 w-screen h-screen flex flex-col justify-between pt-18">
-        <div className="scanner-top-nav">
-          <Link
-            className="scanner-circle-btn"
-            to={ledgerPath(ledger.id, "scan")}
-            aria-label="Kembali ke pilihan input"
-          >
-            <Icon name="arrow-left" size={18} />
-          </Link>
-          <button
-            type="button"
-            className="scanner-circle-btn"
-            aria-label="Ganti kamera"
-            title={
-              cameraDevices.length > 1
-                ? "Ganti kamera"
-                : "Kamera lain tidak tersedia pada perangkat ini"
-            }
-            disabled={!cameraReady || cameraDevices.length < 2 || busy}
-            onClick={switchCamera}
-          >
-            <Icon name="gear" size={18} />
-          </button>
-        </div>
-
-        {(error || pendingReceiptId) && (
+      <div className="camera-overlay absolute bottom-0 w-screen h-screen flex flex-col justify-between pt-18">
+        {/* {(error || pendingReceiptId) && (
           <div className="camera-feedback">
             {error && (
               <Alert variant="error" onDismiss={() => setError("")}>
@@ -326,11 +289,14 @@ export function ReceiptCapturePage() {
               </Button>
             )}
           </div>
-        )}
+        )} */}
+
+        <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 w-3/4 h-2/3 border-4 rounded-lg border-white">
+          <p className="w-full text-center -mt-10">Arahkan nota di dalam bingkai</p>
+        </div>
 
         <div>
-
-          <div className="scanner-bottom-actions mb-8">
+          <div className="flex flex-row absolute bottom-0 items-center w-full justify-around mb-8">
             <button
               type="button"
               className="scanner-action-btn"
@@ -343,14 +309,14 @@ export function ReceiptCapturePage() {
             </button>
             <button
               type="button"
-              className="scanner-center-capture-btn"
+              className="text-2xl"
               aria-label="Ambil foto struk"
               disabled={!cameraReady || busy || Boolean(pendingReceiptId)}
               onClick={capturePhoto}
             >
-              <Icon name="scan" size={20} />
-              <span>{busy ? message : "Ambil Foto"}</span>
+              <SiRecord className="text-6xl" />
             </button>
+
             <button
               type="button"
               className={`scanner-action-btn ${torchOn ? "active" : ""}`}
@@ -363,14 +329,41 @@ export function ReceiptCapturePage() {
               <Icon name="flash" size={24} />
             </button>
           </div>
-            {cameraReady && !torchAvailable && (
+          {/* {cameraReady && !torchAvailable && (
               <p className="camera-control-hint" role="status">
                 Flash tidak tersedia pada kamera ini.
               </p>
-            )}
-            {busy && <p className="scanner-busy-banner" role="status">{message}</p>}
+            )} */}
+          {/* {busy && <p className="scanner-busy-banner" role="status">{message}</p>} */}
         </div>
       </div>
+
+
+
+      <BottomDialog isOpen={bottomDialogOpen} showClose={false} onClose={() => setBottomDialogOpen(false)} >
+        <div className="text-center w-full">
+            {error ? (
+              <div className="flex flex-row justify-between items-centerr">
+                <p>{error}</p>
+                <button onClick={() => {setBottomDialogOpen(false); setError("");}}><SiClose className="text-lg"/></button>
+              </div>
+              ) : (
+                <p>{message}</p>
+              )}
+            
+            {pendingReceiptId && !busy && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() =>
+                  navigate(receiptReviewPath(ledger.id, pendingReceiptId), { replace: true })
+                }
+              >
+                Buka tinjau struk
+              </Button>
+            )}
+        </div>
+      </BottomDialog>
 
       <input
         ref={galleryInput}

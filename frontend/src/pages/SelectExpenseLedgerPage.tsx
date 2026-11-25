@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, type Ledger } from "../lib/api";
 import { ledgerPath } from "../lib/routes";
-import { Alert, EmptyState, Icon, LoadingState } from "../components/ui";
+import { Alert, EmptyState, LoadingState } from "../components/ui";
 import { SiLibraryBooks } from '@sargamicons/react/line';
 
 
@@ -62,8 +62,7 @@ export function SelectExpenseLedgerPage() {
         <Icon name="arrow-left" size={16} />
         <span>Kembali ke Beranda</span>
       </Link> */}
-      <p className="font-bold text-xl mb-2">Pilih Buku Pengeluaran</p>
-      <div className="flex flex-col divide-y divide-olive-300">
+      <div className="flex flex-col divide-y divide-gray-100 rounded-lg overflow-hidden">
         {ledgers.map((ledger) => (
           <Link
             key={ledger.id}

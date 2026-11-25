@@ -87,7 +87,7 @@ def render_variants(
     original = _fit(image, original_side)
     processed = _fit(image, processed_side)
     gray = ImageOps.grayscale(processed)
-    enhanced = ImageOps.autocontrast(gray)
+    enhanced = ImageOps.autocontrast(gray, cutoff=0.5)
     processed = ImageOps.colorize(enhanced, black=(0, 0, 0), white=(255, 255, 255))
     processed = ImageEnhance.Contrast(processed).enhance(1.05)
     thumb = _fit(processed, thumb_side)

@@ -40,6 +40,7 @@ describe("HomePage", () => {
           currency: "IDR",
           role: "owner",
           member_count: 1,
+          sum_spend: 0,
         },
         {
           id: "ledger-shared",
@@ -48,6 +49,7 @@ describe("HomePage", () => {
           currency: "IDR",
           role: "member",
           member_count: 2,
+          sum_spend: 0,
         },
       ],
     });
@@ -58,6 +60,7 @@ describe("HomePage", () => {
       currency: "IDR",
       role: id === "ledger-shared" ? "member" : "owner",
       member_count: 1,
+      sum_spend: 0,
       members: [],
     }));
     vi.mocked(api.summary).mockImplementation(async (id) => ({

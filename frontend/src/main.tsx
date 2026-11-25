@@ -27,6 +27,7 @@ import { PublicLayout } from "./pages/PublicLayout";
 import { ScanPage } from "./pages/ScanPage";
 import { TrackersPage } from "./pages/TrackersPage";
 import { ReceiptReviewPage } from "./pages/ReceiptReviewPage";
+import { HistoryExpenseDetailPage } from "./pages/HistoryExpenseDetailPage";
 import { reportWebVitals } from "./lib/metrics";
 import { ledgerPath } from "./lib/routes";
 import { PersonalisasiBukuPage } from "./pages/PersonalisasiBukuPage";
@@ -182,6 +183,10 @@ const router = createBrowserRouter([
                   { path: "/app/ledger/:ledgerId/scan", element: <ScanPage /> },
                   { path: "/app/ledger/:ledgerId/scan/capture", element: <ReceiptCapturePage /> },
                   { path: "/app/ledger/:ledgerId/manual", element: <ManualPage /> },
+                  {
+                    path: "/app/ledger/:ledgerId/receipts/:receiptId/detail",
+                    element: <HistoryExpenseDetailPage />,
+                  },
                   {
                     path: "/app/ledger/:ledgerId/receipts/:receiptId",
                     element: <ReceiptReviewPage />,

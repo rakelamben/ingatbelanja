@@ -77,9 +77,11 @@ diatur oleh `BACKUP_KEEP` (default 7).
 - Data disimpan lokal di `storage/`; folder tersebut diabaikan Git dan tidak boleh
   diunggah ke issue, pull request, atau layanan eksternal.
 - OCR default berjalan dengan provider fake untuk development; pipeline produksi
-  memakai CPU sebagai baseline dan GPU NVIDIA hanya akselerasi opsional. Untuk
-  membaca foto sungguhan, pasang dependensi PaddleOCR lalu atur `OCR_ENGINE=paddle`;
-  mode `fake` hanya membaca fixture `.ocr.json` untuk pengujian.
+  memakai PaddleOCR lokal dengan CPU sebagai baseline dan GPU NVIDIA hanya akselerasi
+  opsional. Untuk membaca foto sungguhan, pasang dependensi PaddleOCR lalu atur
+  `OCR_ENGINE=paddle` dan `OCR_LANGUAGE=en`; `OCR_DOC_PREPROCESS=true` mengaktifkan
+  klasifikasi orientasi dan perataan dokumen. Mode `fake` hanya membaca fixture
+  `.ocr.json` untuk pengujian.
 - Tanya AI bersifat read-only, memakai provider fake secara default, dan hanya
   membaca ringkasan yang diizinkan setelah persetujuan pengguna.
 - Untuk akses dari HP di jaringan rumah, izinkan Python pada profil Windows

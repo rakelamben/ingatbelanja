@@ -109,12 +109,12 @@ describe("ReceiptReviewPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Superindo Test" })).toBeTruthy();
+      expect(screen.getByDisplayValue("Superindo Test")).toBeTruthy();
     });
 
     // Check issues displayed
-    expect(screen.getByText("Selisih Total & Rincian")).toBeTruthy();
-    expect(screen.getByText("Foto Buram")).toBeTruthy();
+    expect(screen.getByText("Jumlah harga item tidak cocok dengan total struk.")).toBeTruthy();
+    expect(screen.getByText("Kamera kurang fokus saat pengambilan foto.")).toBeTruthy();
 
     // Check line items rendered
     expect(screen.getByDisplayValue("Beras 5kg")).toBeTruthy();
@@ -126,6 +126,104 @@ describe("ReceiptReviewPage", () => {
     const img = screen.getByAltText(/foto struk/i);
     expect(img).toBeTruthy();
     expect(img.getAttribute("src")).toContain("/api/v1/receipts/rcpt-123/image/processed");
+  });
+
+  it("prefills empty receipt fields and line items from the OCR candidate", async () => {
+    vi.mocked(api.receipt).mockResolvedValueOnce({
+      ...mockReceipt,
+      merchant_name: null,
+      purchased_on: null,
+      total_minor: null,
+      items: [],
+      extraction_candidate: {
+        merchant: "Toko Hasil OCR",
+        merchant_line_ids: ["r1"],
+        merchant_confidence: 0.96,
+        purchased_on: "2026-11-25",
+        date_line_ids: ["r2"],
+        date_confidence: 0.93,
+        currency: "IDR",
+        total_minor: 50000,
+        total_line_ids: ["r4"],
+        total_confidence: 0.98,
+        items: [
+          {
+            name: "Beras 5kg",
+            qty_milli: 1000,
+            unit_price_minor: null,
+            amount_minor: 50000,
+            line_ids: ["r3"],
+            confidence: 0.91,
+          },
+        ],
+        issues: [],
+      },
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Toko Hasil OCR")).toBeTruthy();
+      expect(screen.getByDisplayValue("Beras 5kg")).toBeTruthy();
+    });
+
+    expect(screen.getByLabelText<HTMLInputElement>(/tanggal transaksi/i).value).toBe(
+      "2026-11-25",
+    );
+    expect(screen.getByLabelText<HTMLSelectElement>("Kategori").value).toBe("cat-1");
+    expect(screen.getAllByDisplayValue("50000")).toHaveLength(2);
+  });
+
+  it("keeps persisted receipt fields and line items authoritative over OCR candidate", async () => {
+    vi.mocked(api.receipt).mockResolvedValueOnce({
+      ...mockReceipt,
+      extraction_candidate: {
+        merchant: "Toko OCR Berbeda",
+        merchant_line_ids: ["r1"],
+        merchant_confidence: 0.9,
+        purchased_on: "2026-11-01",
+        date_line_ids: ["r2"],
+        date_confidence: 0.9,
+        currency: "USD",
+        total_minor: 99999,
+        total_line_ids: ["r4"],
+        total_confidence: 0.9,
+        items: [
+          {
+            name: "Item OCR",
+            qty_milli: 1000,
+            unit_price_minor: null,
+            amount_minor: 99999,
+            line_ids: ["r3"],
+            confidence: 0.9,
+          },
+        ],
+        issues: [],
+      },
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Superindo Test")).toBeTruthy();
+      expect(screen.getByDisplayValue("Beras 5kg")).toBeTruthy();
+    });
+
+    expect(screen.queryByDisplayValue("Toko OCR Berbeda")).toBeNull();
+    expect(screen.queryByDisplayValue("Item OCR")).toBeNull();
+  });
+
+  it("closes only the selected quality issue", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Kamera kurang fokus saat pengambilan foto.")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tutup catatan Foto Buram" }));
+
+    expect(screen.queryByText("Kamera kurang fokus saat pengambilan foto.")).toBeNull();
+    expect(screen.getByText("Jumlah harga item tidak cocok dengan total struk.")).toBeTruthy();
   });
 
   it("highlights the item selected from the home feed", async () => {
@@ -142,7 +240,7 @@ describe("ReceiptReviewPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Superindo Test" })).toBeTruthy();
+      expect(screen.getByDisplayValue("Superindo Test")).toBeTruthy();
     });
 
     const addItemBtn = screen.getByRole("button", { name: /tambah item/i });
@@ -170,7 +268,7 @@ describe("ReceiptReviewPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Superindo Test" })).toBeTruthy();
+      expect(screen.getByDisplayValue("Superindo Test")).toBeTruthy();
     });
 
     const confirmBtn = screen.getByRole("button", { name: /konfirmasi & simpan/i });
@@ -193,7 +291,7 @@ describe("ReceiptReviewPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Superindo Test" })).toBeTruthy();
+      expect(screen.getByDisplayValue("Superindo Test")).toBeTruthy();
     });
 
     expect(screen.getByText(/konversi valuta asing \(usd → idr\)/i)).toBeTruthy();

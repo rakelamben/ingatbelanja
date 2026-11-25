@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useLedger } from "../context/LedgerContext";
 import { ledgerPath } from "../lib/routes";
-import { EmptyState, Icon } from "../components/ui";
+import { EmptyState } from "../components/ui";
 import { SiAiScan, SiBallot } from "@sargamicons/react/fill";
 
 export function ScanPage() {
@@ -25,7 +25,7 @@ export function ScanPage() {
 
   return (
     <section className="scan-page">
-      <div className="flex flex-col divide-y divide-olive-300 rounded-lg">
+      <div className="flex flex-col divide-y divide-gray-100 rounded-lg overflow-hidden">
         <Link
           to={ledgerPath(ledger.id, "scan/capture")}
           className="flex flex-row items-start gap-4 bg-white px-5 py-5"

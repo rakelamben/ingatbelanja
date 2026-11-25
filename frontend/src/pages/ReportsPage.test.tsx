@@ -81,6 +81,7 @@ describe("ReportsPage", () => {
           currency: "IDR",
           role: "owner",
           member_count: 1,
+          sum_spend: 0,
         },
         {
           id: "ledger-analytic",
@@ -89,6 +90,7 @@ describe("ReportsPage", () => {
           currency: "IDR",
           role: "member",
           member_count: 2,
+          sum_spend: 0,
         },
       ],
     });
@@ -99,6 +101,7 @@ describe("ReportsPage", () => {
       currency: "IDR",
       role: id === "ledger-analytic" ? "member" : "owner",
       member_count: 1,
+      sum_spend: 0,
       members: [],
     }));
     vi.mocked(api.summary).mockResolvedValue({
@@ -110,7 +113,7 @@ describe("ReportsPage", () => {
       compare: { diff_minor: 0, pct_bp: 0 },
       currency: "IDR",
     });
-    vi.mocked(api.recentExpenseItems).mockResolvedValue({ items: [] });
+    vi.mocked(api.recentExpenseItems).mockResolvedValue({ items: [], next_cursor: null });
   });
 
   function AnalyticsRoute() {

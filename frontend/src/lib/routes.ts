@@ -5,3 +5,7 @@ export function ledgerPath(ledgerId: string, suffix = "") {
 export function receiptReviewPath(ledgerId: string, receiptId: string) {
   return `/app/ledger/${encodeURIComponent(ledgerId)}/receipts/${encodeURIComponent(receiptId)}`;
 }
+
+export function receiptDetailPath(ledgerId: string, receiptId: string) {
+  return `${receiptReviewPath(ledgerId, receiptId)}/detail`;
+}

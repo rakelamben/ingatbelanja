@@ -103,6 +103,11 @@ def _detail(connection, row):
         "SELECT li.*, c.name AS category_name FROM line_items li LEFT JOIN categories c ON c.id = li.category_id WHERE li.receipt_id = ? ORDER BY li.created_at, li.id",
         (row["id"],),
     ).fetchall()
+    extraction = connection.execute(
+        "SELECT rule_candidate FROM extraction_runs WHERE receipt_id = ? "
+        "ORDER BY attempt DESC, created_at DESC LIMIT 1",
+        (row["id"],),
+    ).fetchone()
     return {
         "id": row["id"],
         "ledger_id": row["ledger_id"],
@@ -126,6 +131,11 @@ def _detail(connection, row):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "items": [dict(item) for item in items],
+        "extraction_candidate": (
+            json.loads(extraction["rule_candidate"])
+            if extraction and extraction["rule_candidate"]
+            else None
+        ),
     }
 
 
@@ -232,6 +242,12 @@ def list_recent_items(ledger_id: str):
                 "(li.created_at < ? OR (li.created_at = ? AND li.id < ?))"
             )
             params.extend([cursor[0], cursor[0], cursor[1]])
+        if request.args.get("key"):
+            clauses.append(
+                "(li.name_norm LIKE ?)"
+            )
+            query = f"%{normalize_text(request.args['key'])}%"
+            params.append(query)
         params.append(limit + 1)
         rows = connection.execute(
             "SELECT li.id, li.receipt_id, li.category_id, c.name AS category_name, "

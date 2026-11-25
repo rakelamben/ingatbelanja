@@ -153,6 +153,7 @@ class Worker:
                     self.settings.storage_dir,
                     job["receipt_id"],
                     engine=self.ocr_engine,
+                    min_mean_conf=self.settings.ocr_mean_conf_min,
                 )
             else:
                 raise ValueError(f"unsupported job kind: {job['kind']}")

@@ -27,6 +27,7 @@ describe("HistoryPage (Sprint D)", () => {
       currency: "IDR",
       role: "owner",
       member_count: 1,
+      sum_spend: 0,
       members: [],
     });
     vi.mocked(api.receipts).mockResolvedValue({
@@ -63,7 +64,7 @@ describe("HistoryPage (Sprint D)", () => {
     );
   }
 
-  it("renders transaction history and links to review page", async () => {
+  it("renders transaction history and links to expense details", async () => {
     renderHistory();
 
     await waitFor(() => {
@@ -71,7 +72,7 @@ describe("HistoryPage (Sprint D)", () => {
     });
 
     const link = screen.getByRole("link", { name: /superindo karawaci/i });
-    expect(link.getAttribute("href")).toBe("/app/ledger/ledger-main/receipts/rcpt-1");
+    expect(link.getAttribute("href")).toBe("/app/ledger/ledger-main/receipts/rcpt-1/detail");
     expect(screen.getByRole("link", { name: /kembali ke beranda/i }).getAttribute("href")).toBe(
       "/home",
     );

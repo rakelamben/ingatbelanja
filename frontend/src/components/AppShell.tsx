@@ -102,6 +102,15 @@ export function AppShell() {
     if (path.includes("/receipts/")) {
       return {
         title: "Detail Pengeluaran",
+        button2: (
+          <button
+            type="button"
+            aria-label="Kembali"
+            onClick={() => navigate(-1)}
+          >
+            <SiClose className="text-2xl" />
+          </button>
+        ),
       }
     };
     if (path === "/app/books" || path === "/app/trackers") return {title: "Buku Pengeluaran"};
@@ -114,10 +123,25 @@ export function AppShell() {
     if (path === "/analytic" || path.endsWith("/analytics")) return {
       title: "Analitik",
     };
-    if (path.endsWith("/history")) return {title: "Riwayat"};
-    if (path.endsWith("/scan/capture")) return {title: "Ambil Foto Struk"};
+    if (path.endsWith("/history")) return {
+      title: "Riwayat",
+      button2: <Link to={"/home"}><SiChevronLeftAlt className="text-xl"/></Link>
+    };
+    if (path.endsWith("/scan/capture")) return {
+      title: "Ambil Foto Struk",
+      button2: (
+        <button
+          type="button"
+          aria-label="Kembali"
+          onClick={() => navigate(ledgerPath(ledgerId, "scan"))}
+        >
+          <SiChevronLeftAlt className="text-2xl" />
+        </button>
+      ),
+
+    };
     if (path === "/app/scan") return {
-      title: "Tambah Pengeluaran",
+      title: "Pilih Buku Pengeluaran",
       button2: (
         <button
           type="button"
@@ -134,7 +158,19 @@ export function AppShell() {
         <button
           type="button"
           aria-label="Kembali"
-          onClick={() => navigate("app/scan")}
+          onClick={() => navigate("/app/scan")}
+        >
+          <SiChevronLeftAlt className="text-2xl" />
+        </button>
+      ),
+    }
+    if(/^\/app\/ledger\/[^/]+\/manual$/.test(path)) return {
+      title: "Masukkan Pengeluaran ",
+      button2: (
+        <button
+          type="button"
+          aria-label="Kembali"
+          onClick={() => navigate(ledgerPath(ledgerId, "scan"))}
         >
           <SiChevronLeftAlt className="text-2xl" />
         </button>
@@ -170,7 +206,7 @@ export function AppShell() {
     /^\/app\/ledger\/[^/]+\/scan$/.test(path);
 
   return (
-    <div className="app-frame bg-olive-100">
+    <div className={`app-frame bg-olive-100 ${!hideBottomNav ? "pb-24" : ""}`}>
       <a className="skip-link" href="#main">
         Lompat ke konten utama
       </a>

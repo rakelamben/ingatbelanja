@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ledgerPath, receiptReviewPath } from "./routes";
+import { ledgerPath, receiptDetailPath, receiptReviewPath } from "./routes";
 
 describe("ledger routes", () => {
   it("builds canonical paths for the active ledger", () => {
@@ -11,6 +11,12 @@ describe("ledger routes", () => {
   it("builds canonical path for receipt review", () => {
     expect(receiptReviewPath("ledger-1", "rcpt-42")).toBe(
       "/app/ledger/ledger-1/receipts/rcpt-42",
+    );
+  });
+
+  it("builds a separate canonical path for receipt details", () => {
+    expect(receiptDetailPath("ledger-1", "rcpt-42")).toBe(
+      "/app/ledger/ledger-1/receipts/rcpt-42/detail",
     );
   });
 });

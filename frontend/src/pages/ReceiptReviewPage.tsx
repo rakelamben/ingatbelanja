@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   api,
@@ -11,11 +11,10 @@ import {
 import { useLedger } from "../context/LedgerContext";
 import { ledgerPath } from "../lib/routes";
 import { ExpenseEditor } from "../components/ExpenseEditor";
-import { formatMinorMoney } from "../lib/money";
+import { suggestReceiptCategoryId } from "../lib/receiptCategorySuggestion";
 import {
   Button,
   Alert,
-  StatusBadge,
   EmptyState,
   LoadingState,
   Icon,
@@ -38,6 +37,14 @@ const ISSUE_LABELS: Record<string, { label: string; desc: string }> = {
     desc: "Mata uang perlu ditentukan secara manual.",
   },
   FX_RATE_NEEDED: { label: "Perlu Kurs Konversi", desc: "Transaksi dalam mata uang asing." },
+  ITEMS_NOT_DETECTED: {
+    label: "Rincian Barang Belum Terdeteksi",
+    desc: "Tambahkan atau periksa rincian barang sebelum menyimpan.",
+  },
+  LOW_OCR_CONF: {
+    label: "Hasil OCR Kurang Jelas",
+    desc: "Periksa kembali teks dan angka yang dikenali dari foto struk.",
+  },
 };
 
 export function ReceiptReviewPage() {
@@ -69,6 +76,43 @@ export function ReceiptReviewPage() {
   const [reprocessing, setReprocessing] = useState(false);
   const [isPhotoZoomed, setIsPhotoZoomed] = useState(false);
 
+  const populateForm = useCallback(
+    (data: ReceiptDetail, availableCategories: Category[], preserveEdits = false) => {
+      const candidate = data.extraction_candidate;
+      const candidateItems = (candidate?.items || []).map((item) => ({
+        name: item.name,
+        qty_milli: item.qty_milli || 1000,
+        unit_price_minor: item.unit_price_minor ?? null,
+        amount_minor: item.amount_minor,
+        category_id: suggestReceiptCategoryId(item.name, availableCategories),
+      }));
+
+      if (preserveEdits) {
+        setMerchantName((cur) => cur || data.merchant_name || candidate?.merchant || "");
+        setPurchasedOn(
+          (cur) => cur || data.purchased_on || candidate?.purchased_on || new Date().toISOString().slice(0, 10),
+        );
+        setCurrency((cur) => cur || data.currency || candidate?.currency || "IDR");
+        setTotalMinor((cur) => cur ?? data.total_minor ?? candidate?.total_minor ?? null);
+        setNote((cur) => cur || data.note || "");
+        setFxRate((cur) => cur || data.fx_rate || "");
+        setItems((cur) => (cur.length ? cur : data.items.length ? data.items : candidateItems));
+        return;
+      }
+
+      setMerchantName(data.merchant_name || candidate?.merchant || "");
+      setPurchasedOn(
+        data.purchased_on || candidate?.purchased_on || new Date().toISOString().slice(0, 10),
+      );
+      setCurrency(data.currency || candidate?.currency || "IDR");
+      setTotalMinor(data.total_minor ?? candidate?.total_minor ?? null);
+      setNote(data.note || "");
+      setFxRate(data.fx_rate || "");
+      setItems(data.items.length ? data.items : candidateItems);
+    },
+    [],
+  );
+
   // Initial load
   useEffect(() => {
     if (!receiptId || !ledgerId) return;
@@ -86,7 +130,7 @@ export function ReceiptReviewPage() {
         setReceipt(rcpt);
         setCategories(catData.categories);
         setCurrencies(currencyData.currencies);
-        populateForm(rcpt);
+        populateForm(rcpt, catData.categories);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -99,7 +143,7 @@ export function ReceiptReviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [receiptId, ledgerId]);
+  }, [receiptId, ledgerId, populateForm]);
 
   // Polling if receipt is processing
   useEffect(() => {
@@ -111,7 +155,7 @@ export function ReceiptReviewPage() {
           clearInterval(interval);
           const updated = await api.receipt(receiptId);
           setReceipt(updated);
-          populateForm(updated);
+          populateForm(updated, categories, true);
         }
       } catch {
         // keep polling
@@ -119,7 +163,7 @@ export function ReceiptReviewPage() {
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [receiptId, receipt?.status]);
+  }, [receiptId, receipt?.status, categories, populateForm]);
 
   useEffect(() => {
     if (!selectedItemId || !receipt?.items.some((item) => item.id === selectedItemId)) return;
@@ -127,16 +171,6 @@ export function ReceiptReviewPage() {
       .getElementById(`receipt-item-${selectedItemId}`)
       ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
   }, [receipt, selectedItemId]);
-
-  const populateForm = (data: ReceiptDetail) => {
-    setMerchantName(data.merchant_name || "");
-    setPurchasedOn(data.purchased_on || new Date().toISOString().slice(0, 10));
-    setCurrency(data.currency || "IDR");
-    setTotalMinor(data.total_minor);
-    setNote(data.note || "");
-    setFxRate(data.fx_rate || "");
-    setItems(data.items.length ? data.items : []);
-  };
 
   // Check dirty state
   const isDirty = (() => {
@@ -170,12 +204,6 @@ export function ReceiptReviewPage() {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isDirty]);
-
-  const handleBack = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (isDirty && typeof window !== "undefined" && !window.confirm("Perubahan belum disimpan. Yakin ingin kembali?")) {
-      e.preventDefault();
-    }
-  };
 
   // Add Item
   const handleAddItem = () => {
@@ -238,7 +266,7 @@ export function ReceiptReviewPage() {
       });
 
       setReceipt(updated);
-      populateForm(updated);
+      populateForm(updated, categories);
       setSuccessMsg("Perubahan berhasil disimpan.");
       return updated;
     } catch (err) {
@@ -344,34 +372,12 @@ export function ReceiptReviewPage() {
 
   if (!receipt) return null;
 
-  const isConfirmed = receipt.status === "confirmed";
   const isPhoto = receipt.source === "photo";
   const ledgerMinorUnit =
     currencies.find((item) => item.code === ledger?.currency)?.minor_unit ?? 0;
 
   return (
     <section className="receipt-review-page">
-      <Link
-        className="back-link"
-        to={ledger ? ledgerPath(ledger.id, "history") : "/app"}
-        onClick={handleBack}
-      >
-        <Icon name="arrow-left" size={16} />
-        <span>Kembali ke Riwayat</span>
-      </Link>
-
-      <div className="review-header">
-        <div>
-          <p className="eyebrow">
-            {isConfirmed ? "RINCIAN PENGELUARAN" : "TINJAU & KOREKSI STRUK"}
-          </p>
-          <h1>{merchantName || "Struk Belanja"}</h1>
-        </div>
-        <div className="review-badge-group">
-          <StatusBadge status={receipt.status} />
-        </div>
-      </div>
-
       {error && (
         <Alert variant="error" onDismiss={() => setError("")} className="mb-4">
           {error}
@@ -386,42 +392,38 @@ export function ReceiptReviewPage() {
 
       {/* Quality Issues Section */}
       {receipt.issues && receipt.issues.length > 0 && (
-        <div className="review-issues-card" role="region" aria-label="Catatan kualitas foto">
-          <div className="review-issues-title">
-            <Icon name="alert" size={18} />
-            <strong>Catatan Kualitas & Verifikasi</strong>
-          </div>
-          <div className="issue-tags">
-            {receipt.issues.map((issue) => {
-              const meta = ISSUE_LABELS[issue] || { label: issue, desc: "Periksa kembali data ini." };
-              return (
-                <div key={issue} className="issue-tag" title={meta.desc}>
-                  <span className="issue-name">{meta.label}</span>
-                  <small className="issue-desc">{meta.desc}</small>
-                </div>
-              );
-            })}
-          </div>
+        <div className="">
+          {receipt.issues.map((issue) => {
+            const meta = ISSUE_LABELS[issue] || { label: issue, desc: "Periksa kembali data ini." };
+            return (
+              <div key={issue} className="flex flex-row items-center w-full justify-between px-3 bg-amber-200 py-2 rounded-md" title={meta.desc}>
+                <p className="text-sm">{meta.desc}</p>
+                <button
+                  type="button"
+                  className="close-btn"
+                  aria-label={`Tutup catatan ${meta.label}`}
+                  onClick={() =>
+                    setReceipt((current) =>
+                      current
+                        ? {
+                            ...current,
+                            issues: current.issues.filter((currentIssue) => currentIssue !== issue),
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <span aria-hidden="true">&times;</span>
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      <div className="review-layout">
-        {/* Left Column: Photo Preview */}
+      <div className="mt-3">
         {isPhoto && (
-          <aside className="review-photo-column">
-            <div className="review-photo-card">
-              <div className="photo-header">
-                <strong>Foto Struk Asli</strong>
-                <button
-                  type="button"
-                  className="ghost-button photo-zoom-btn"
-                  onClick={() => setIsPhotoZoomed(!isPhotoZoomed)}
-                  aria-label={isPhotoZoomed ? "Kecilkan foto" : "Perbesar foto"}
-                >
-                  <Icon name="search" size={16} />
-                  <span>{isPhotoZoomed ? "Kecilkan" : "Perbesar"}</span>
-                </button>
-              </div>
+          <aside className="flex flex-col gap-2 ">
 
               <div
                 className={`photo-container ${isPhotoZoomed ? "zoomed" : ""}`}
@@ -441,27 +443,24 @@ export function ReceiptReviewPage() {
                 />
               </div>
 
-              <div className="photo-actions">
+              <div className="flex flex-row gap-1 mb-5">
                 <Button
                   variant="secondary"
                   className="w-full text-xs"
                   onClick={handleReprocess}
                   loading={reprocessing}
                 >
-                  <Icon name="history" size={16} />
-                  <span>Proses Ulang OCR</span>
+                  <span>Scan Ulang</span>
                 </Button>
                 {ledger && (
                   <Link
                     to={ledgerPath(ledger.id, "scan")}
                     className="secondary-button w-full text-xs"
                   >
-                    <Icon name="upload" size={16} />
-                    <span>Foto Ulang Struk</span>
+                    <span>Ambil Foto</span>
                   </Link>
                 )}
               </div>
-            </div>
           </aside>
         )}
 

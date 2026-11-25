@@ -12,7 +12,7 @@ import {
   SiAirplaneAlt,
 } from "@sargamicons/react/fill";
 import { ErrorState, LoadingState } from "./ui";
-import { receiptReviewPath, ledgerPath } from "../lib/routes";
+import { receiptReviewPath } from "../lib/routes";
 import type { RecentExpenseItem } from "../lib/api";
 
 const categoryIcons: Record<string, [typeof SiGrid, string]> = {
@@ -79,7 +79,6 @@ export function RecentExpenses({
   error = "",
   onRetry,
   groupByMonth = false,
-  showAllLink = true,
   hasMore = false,
   loadingMore = false,
   onLoadMore,
@@ -176,7 +175,7 @@ export function RecentExpenses({
       ) : items.length === 0 ? (
         <p className="muted text-sm text-center py-4">Belum ada pengeluaran yang tercatat.</p>
       ) : (
-        <div className="flex flex-col bg-white divide-y divide-gray-100 rounded-lg overflow-hidden mt-6">
+        <div className="flex flex-col bg-white divide-y divide-gray-100 rounded-lg overflow-hidden">
           {groups
             ? [...groups.entries()]
                 .sort(([left], [right]) => {

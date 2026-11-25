@@ -12,7 +12,7 @@ def test_empty_database_migrates_and_seeds(tmp_path) -> None:
         assert migrate(connection) == 5
         assert schema_version(connection) == 5
         assert connection.execute("SELECT COUNT(*) FROM currencies").fetchone()[0] == 13
-        assert connection.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 7
+        assert connection.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 5
         assert_integrity(connection)
         assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
     finally:

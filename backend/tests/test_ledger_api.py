@@ -1,11 +1,9 @@
 from app import create_app
-from app.api.auth import limiter
 from app.config import Settings
 from app.db import connect, migrate
 
 
 def make_client(tmp_path):
-    limiter._events.clear()
     settings = Settings(
         storage_dir=tmp_path / "storage",
         database_path=tmp_path / "storage" / "db.sqlite3",

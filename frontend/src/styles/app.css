@@ -534,7 +534,7 @@ a {
 /* Application Layout */
 .app-frame {
   min-height: 100vh;
-  padding-bottom: max(7.5rem, calc(5.5rem + env(safe-area-inset-bottom)));
+  /* padding-bottom: max(7.5rem, calc(5.5rem + env(safe-area-inset-bottom))); */
 }
 
 /* .topbar, */
@@ -1089,27 +1089,7 @@ a {
   word-break: break-word;
 }
 
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  min-height: 44px;
-  margin: 1.5rem 0 1rem;
-  padding: 0.5rem 0.9rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.85);
-}
 
-.search-box input {
-  width: 100%;
-  min-height: 40px;
-  border: 0;
-  outline: 0;
-  color: var(--color-text);
-  background: transparent;
-}
 
 .receipt-list {
   display: grid;
@@ -2067,6 +2047,21 @@ a {
 .receipt-review-page {
   max-width: 880px;
   margin-inline: auto;
+}
+
+.expense-detail-toast {
+  position: fixed;
+  z-index: 1000;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 2rem);
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-md);
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  box-shadow: 0 8px 24px rgb(24 53 42 / 18%);
 }
 
 .review-header {

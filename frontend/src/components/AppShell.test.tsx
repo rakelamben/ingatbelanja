@@ -28,6 +28,7 @@ function renderShell(path: string, history?: string[]) {
             <Route path="/analytic" element={<p>Analytics content</p>} />
             <Route path="/app/books" element={<p>Books content</p>} />
             <Route path="/app/books/create" element={<p>Create book content</p>} />
+            <Route path="/app/scan" element={<p>Select book content</p>} />
             <Route
               path="/app/ledger/:ledgerId/scan"
               element={<p>Scan content</p>}
@@ -72,18 +73,17 @@ describe("AppShell navigation", () => {
     );
   });
 
-  it("keeps the selected book when Scan navigation is opened in its context", () => {
+  it("hides bottom navigation when contextual Scan page is opened", () => {
     renderShell("/app/ledger/ledger-personal/scan");
 
-    expect(screen.getByRole("link", { name: /scan struk/i }).getAttribute("href")).toBe(
-      "/app/ledger/ledger-personal/scan",
-    );
+    expect(screen.getByText("Scan content")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Navigasi utama" })).toBeNull();
   });
 
   it("uses browser history when the Scan back button is clicked", () => {
-    renderShell("/app/ledger/ledger-personal/scan", [
+    renderShell("/app/scan", [
       "/home",
-      "/app/ledger/ledger-personal/scan",
+      "/app/scan",
     ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Kembali" }));

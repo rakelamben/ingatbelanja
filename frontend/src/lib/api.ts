@@ -34,6 +34,28 @@ export type ReceiptItem = {
   category_name?: string | null;
 };
 
+export type ReceiptExtractionCandidate = {
+  merchant: string | null;
+  merchant_line_ids: string[];
+  merchant_confidence: number | null;
+  purchased_on: string | null;
+  date_line_ids: string[];
+  date_confidence: number | null;
+  currency: string;
+  total_minor: number | null;
+  total_line_ids: string[];
+  total_confidence: number | null;
+  items: {
+    name: string;
+    qty_milli: number;
+    unit_price_minor: number | null;
+    amount_minor: number;
+    line_ids: string[];
+    confidence: number | null;
+  }[];
+  issues: string[];
+};
+
 export type ReceiptDetail = {
   id: string;
   ledger_id: string;
@@ -53,6 +75,7 @@ export type ReceiptDetail = {
   created_at: string;
   updated_at: string;
   items: ReceiptItem[];
+  extraction_candidate?: ReceiptExtractionCandidate | null;
 };
 
 export type Category = {
@@ -177,9 +200,10 @@ export const api = {
   ledgers: () => request<{ ledgers: Ledger[] }>("/ledgers"),
   ledger: (id: string) => request<Ledger & { members: User[] }>(`/ledgers/${id}`),
   receipts: (id: string, query = "") => request<{ items: Receipt[]; next_cursor: string | null }>(`/ledgers/${id}/receipts${query}`),
-  recentExpenseItems: (id: string, limit = 5, cursor?: string) => {
+  recentExpenseItems: (id: string, limit = 5, cursor?: string, key? : string) => {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set("cursor", cursor);
+    if (key) query.set("key", key);
     return request<{ items: RecentExpenseItem[]; next_cursor: string | null }>(
       `/ledgers/${id}/recent-items?${query.toString()}`,
     );

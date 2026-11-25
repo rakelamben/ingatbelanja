@@ -58,8 +58,5 @@ describe("SelectExpenseLedgerPage", () => {
     expect(screen.getByRole("link", { name: /liburan/i }).getAttribute("href")).toBe(
       "/app/ledger/ledger-trip/scan",
     );
-    expect(screen.getByRole("link", { name: /kembali ke beranda/i }).getAttribute("href")).toBe(
-      "/home",
-    );
   });
 });

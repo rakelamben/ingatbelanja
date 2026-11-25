@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { api, type Receipt } from "../lib/api";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { Link, useLocation, useSearchParams, useParams } from "react-router-dom";
+import { ApiError, api, type Receipt, type RecentExpenseItem } from "../lib/api";
 import { useLedger } from "../context/LedgerContext";
-import { ledgerPath, receiptReviewPath } from "../lib/routes";
+import { ledgerPath, receiptDetailPath } from "../lib/routes";
 import {
   EmptyState,
   LoadingState,
@@ -11,34 +11,50 @@ import {
   Icon,
   Button,
 } from "../components/ui";
+import { RecentExpenses } from "../components/RecentExpenses";
 
 const money = (amount: number | null, currency: string) =>
   amount == null
     ? "Belum ada total"
     : new Intl.NumberFormat("id-ID", {
-        style: "currency",
-        currency,
-        maximumFractionDigits: currency === "IDR" ? 0 : 2,
-      }).format(amount / (currency === "IDR" ? 1 : 100));
+      style: "currency",
+      currency,
+      maximumFractionDigits: currency === "IDR" ? 0 : 2,
+    }).format(amount / (currency === "IDR" ? 1 : 100));
 
 export function HistoryPage() {
   const { ledger, loading: ledgerLoading, error: ledgerError } = useLedger();
   const location = useLocation();
-  const returnToBooks =
-    (location.state as { returnTo?: string } | null)?.returnTo === "/app/books";
   const [params, setParams] = useSearchParams();
+  //cosmetic
+  const [activeGroup, setActiveGroup] = useState("merchant");
 
   // URL query as source of initial search value
   const initialQuery = params.get("q") ?? "";
   const [searchVal, setSearchVal] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
 
+  ///by merchant
   const [items, setItems] = useState<Receipt[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  //by items
+  const [expenseItems, setExpenseItems] = useState<RecentExpenseItem[]>([]);
+  const { ledgerId } = useParams();
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
+  const [itemsError, setItemsError] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [itemsReloadTrigger, setItemsReloadTrigger] = useState(0);
+  const itemsLoadingMoreRef = useRef(false);
+  const activeLedgerIdRef = useRef(ledgerId);
+  activeLedgerIdRef.current = ledgerId;
+
+
 
   // Debounce user input by 280ms
   const debounceTimer = useRef<number | null>(null);
@@ -90,6 +106,7 @@ export function HistoryPage() {
     };
   }, [ledger, debouncedQuery, reloadTrigger]);
 
+
   const handleLoadMore = () => {
     if (!ledger || !cursor || loadingMore) return;
     setLoadingMore(true);
@@ -101,6 +118,83 @@ export function HistoryPage() {
       })
       .finally(() => setLoadingMore(false));
   };
+
+  
+  ///load by item
+  useEffect(() => {
+    if (!ledger?.id) return;
+
+    let cancelled = false;
+    itemsLoadingMoreRef.current = false;
+    setItemsLoadingMore(false);
+    setExpenseItems([]);
+    setNextCursor(null);
+    setItemsError("");
+    setItemsLoading(true);
+    api
+      .recentExpenseItems(ledger.id, 20, undefined, debouncedQuery)
+      .then((data) => {
+        if (cancelled) return;
+        setExpenseItems(data.items);
+        setNextCursor(data.next_cursor);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setItemsError(
+            cause instanceof ApiError
+              ? cause.message
+              : "Tidak dapat memuat riwayat pengeluaran.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setItemsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [itemsReloadTrigger, ledger?.id, debouncedQuery]);
+
+  const loadNextItems = useCallback(async () => {
+    if (!ledger?.id || !nextCursor || itemsLoadingMoreRef.current) return;
+
+    const requestedLedgerId = ledger?.id;
+    itemsLoadingMoreRef.current = true;
+    setItemsLoadingMore(true);
+    setItemsError("");
+    try {
+      const data = await api.recentExpenseItems(requestedLedgerId, 20, nextCursor);
+      if (activeLedgerIdRef.current !== requestedLedgerId) return;
+      setExpenseItems((current) => {
+        const existingIds = new Set(current.map((item) => item.id));
+        return [...current, ...data.items.filter((item) => !existingIds.has(item.id))];
+      });
+      setNextCursor(data.next_cursor);
+    } catch (cause) {
+      if (activeLedgerIdRef.current === requestedLedgerId) {
+        setItemsError(
+          cause instanceof ApiError
+            ? cause.message
+            : "Tidak dapat memuat riwayat pengeluaran.",
+        );
+      }
+    } finally {
+      if (activeLedgerIdRef.current === requestedLedgerId) {
+        itemsLoadingMoreRef.current = false;
+        setItemsLoadingMore(false);
+      }
+    }
+  }, [ledger?.id, nextCursor]);
+
+  const retryItems = useCallback(() => {
+    if (nextCursor) {
+      void loadNextItems();
+    } else {
+      setItemsReloadTrigger((current) => current + 1);
+    }
+  }, [loadNextItems, nextCursor]);
+
 
   if (ledgerLoading) {
     return <LoadingState label="Memuat buku…" />;
@@ -121,25 +215,11 @@ export function HistoryPage() {
       </EmptyState>
     );
   }
-
   return (
-    <section className="history-page">
-      <Link className="back-link" to={returnToBooks ? "/app/books" : "/home"}>
-        <Icon name="arrow-left" size={16} />
-        <span>{returnToBooks ? "Kembali ke daftar buku" : "Kembali ke Beranda"}</span>
-      </Link>
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">{ledger.name.toUpperCase()}</p>
-          <h1>Riwayat belanja</h1>
-        </div>
-        <Link className="small-button" to={ledgerPath(ledger.id, "scan")}>
-          <Icon name="plus" size={16} />
-          <span>Tambah</span>
-        </Link>
-      </div>
+    <section className="">
 
-      <label className="search-box" htmlFor="history-search">
+
+      <label className="flex flex-row items-center gap-3 px-4 py-3 bg-olive-200 rounded-md mb-2" htmlFor="history-search">
         <Icon name="search" size={18} />
         <input
           id="history-search"
@@ -147,6 +227,7 @@ export function HistoryPage() {
           onChange={(event) => setSearchVal(event.target.value)}
           placeholder="Cari merchant atau catatan belanja…"
           aria-label="Cari riwayat pengeluaran"
+          className="bg-transparent border-0 outline-0 w-full"
         />
         {searchVal && (
           <button
@@ -160,68 +241,97 @@ export function HistoryPage() {
         )}
       </label>
 
-      {error ? (
-        <ErrorState
-          title="Gagal memuat riwayat"
-          message={error}
-          onRetry={() => setReloadTrigger((prev) => prev + 1)}
-        />
-      ) : loading ? (
-        <LoadingState label="Memuat riwayat belanja…" />
-      ) : items.length ? (
-        <div className="receipt-list">
-          {items.map((item) => (
-            <Link
-              to={receiptReviewPath(ledger.id, item.id)}
-              className="receipt-row"
-              key={item.id}
-            >
-              <span className="receipt-date">
-                {item.purchased_on
-                  ? new Date(item.purchased_on).toLocaleDateString("id-ID", {
-                      day: "2-digit",
-                      month: "short",
-                    })
-                  : "—"}
-              </span>
-              <span className="receipt-main">
-                <strong>{item.merchant_name || "Tanpa nama merchant"}</strong>
-                <small>
-                  <StatusBadge status={item.status} />
-                </small>
-              </span>
-              <strong className="receipt-total">
-                {money(item.total_ledger_minor ?? item.total_minor, item.currency)}
-              </strong>
-            </Link>
-          ))}
+      <div className="flex flex-row w-full justify-between gap-2 mb-2">
+        <div onClick={() => setActiveGroup("merchant")} className={`${activeGroup == "merchant" ? "bg-(--color-accent) text-white" : "bg-olive-200 text-black"} w-full py-2 px-2 text-center  rounded-md`}>
+          Lihat Merchant
         </div>
+        <div onClick={() => setActiveGroup("item")} className={`${activeGroup == "item" ? "bg-(--color-accent) text-white" : "bg-olive-200 text-black"} w-full py-2 px-2 text-center  rounded-md`}>
+          Lihat Item
+        </div>
+      </div>
+
+      {activeGroup === "merchant" ? (
+        <>
+          {error ? (
+            <ErrorState
+              title="Gagal memuat riwayat"
+              message={error}
+              onRetry={() => setReloadTrigger((prev) => prev + 1)}
+            />
+          ) : loading ? (
+            <LoadingState label="Memuat riwayat belanja…" />
+          ) : items.length ? (
+            <div className="flex flex-col bg-white divide-y divide-gray-100 rounded-lg overflow-hidden">
+              {items.map((item) => (
+                <Link
+                  to={receiptDetailPath(ledger.id, item.id)}
+                  className="home-expense-card flex flex-row gap-4 items-center justify-between px-4 py-3"
+                  key={item.id}
+                >
+                  <span className="receipt-date">
+                    {item.purchased_on
+                      ? new Date(item.purchased_on).toLocaleDateString("id-ID", {
+                        day: "2-digit",
+                        month: "short",
+                      })
+                      : "—"}
+                  </span>
+                  <span className="receipt-main">
+                    <strong>{item.merchant_name || "Tanpa nama merchant"}</strong>
+                  </span>
+                  <strong className="receipt-total">
+                    {item.status !== "confirmed" ? (
+                      <StatusBadge status={item.status} />
+                    ) : (
+                      <p>{money(item.total_ledger_minor ?? item.total_minor, item.currency)}</p>
+                    )}
+                  </strong>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title={debouncedQuery ? "Tidak ada hasil pencarian" : "Belum ada catatan"}
+              icon="receipt"
+              action={
+                <Link className="primary-button" to={ledgerPath(ledger.id, "scan")}>
+                  Tambah pengeluaran
+                </Link>
+              }
+            >
+              {debouncedQuery
+                ? `Tidak ada transaksi yang cocok dengan kata kunci "${debouncedQuery}".`
+                : "Foto struk atau catat manual pengeluaranmu untuk mulai memantau."}
+            </EmptyState>
+          )}
+
+          {cursor && (
+            <Button
+              variant="secondary"
+              className="mt-4 w-full"
+              onClick={handleLoadMore}
+              loading={loadingMore}
+            >
+              Muat lebih banyak
+            </Button>
+          )}
+        </>
       ) : (
-        <EmptyState
-          title={debouncedQuery ? "Tidak ada hasil pencarian" : "Belum ada catatan"}
-          icon="receipt"
-          action={
-            <Link className="primary-button" to={ledgerPath(ledger.id, "scan")}>
-              Tambah pengeluaran
-            </Link>
-          }
-        >
-          {debouncedQuery
-            ? `Tidak ada transaksi yang cocok dengan kata kunci "${debouncedQuery}".`
-            : "Foto struk atau catat manual pengeluaranmu untuk mulai memantau."}
-        </EmptyState>
+        <RecentExpenses
+          ledgerId={ledger.id}
+          items={expenseItems}
+          loading={itemsLoading}
+          formatAmount={money}
+          error={itemsError}
+          onRetry={retryItems}
+          groupByMonth
+          showAllLink={false}
+          hasMore={Boolean(nextCursor)}
+          loadingMore={itemsLoadingMore}
+          onLoadMore={loadNextItems}
+        />
       )}
 
-      {cursor && (
-        <Button
-          variant="secondary"
-          className="mt-4 w-full"
-          onClick={handleLoadMore}
-          loading={loadingMore}
-        >
-          Muat lebih banyak
-        </Button>
-      )}
     </section>
   );
 }

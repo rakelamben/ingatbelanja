@@ -158,4 +158,59 @@ def test_empty_fake_ocr_result_is_not_reported_as_llm_failure(tmp_path):
     issues = json.loads(receipt["issues"])
     assert receipt["status"] == "needs_attention"
     assert "EXTRACTION_FAILED" in issues
-    assert "LLM_UNAVAILABLE" not in issues
+
+
+def test_photo_ocr_candidate_is_available_for_review_without_persisting_line_items(tmp_path):
+    app = make_app(tmp_path)
+    settings = app.config["SETTINGS"]
+    settings.ocr_engine = "fake"
+    client, csrf, ledger_id = register(app)
+    response = client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/photo",
+        data={"file": (io.BytesIO(image_bytes()), "receipt.jpg")},
+        headers={"Idempotency-Key": str(uuid.uuid4()), "X-CSRF-Token": csrf},
+        content_type="multipart/form-data",
+    )
+    receipt_id = response.json["id"]
+
+    connection = connect(settings.database_path)
+    try:
+        image = connection.execute(
+            "SELECT processed_path FROM receipt_images WHERE receipt_id = ?", (receipt_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+
+    fixture_path = (settings.storage_dir / image["processed_path"]).with_suffix(".ocr.json")
+    fixture_path.parent.mkdir(parents=True, exist_ok=True)
+    fixture_path.write_text(
+        json.dumps(
+            {
+                "lines": [
+                    {"id": "l1", "text": "TOKO BERKAH", "poly": [[0, 0], [200, 0], [200, 10], [0, 10]], "score": 0.98},
+                    {"id": "l2", "text": "Tanggal 25/11/2026", "poly": [[0, 20], [200, 20], [200, 30], [0, 30]], "score": 0.95},
+                    {"id": "l3", "text": "BERAS 2 x 12.500 25.000", "poly": [[0, 40], [200, 40], [200, 50], [0, 50]], "score": 0.94},
+                    {"id": "l4", "text": "TOTAL Rp 25.000", "poly": [[0, 60], [200, 60], [200, 70], [0, 70]], "score": 0.99},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert Worker(settings, "worker-test").run_once() is True
+    detail = client.get(f"/api/v1/receipts/{receipt_id}")
+
+    assert detail.status_code == 200
+    assert detail.json["merchant_name"] == "TOKO BERKAH"
+    assert detail.json["purchased_on"] == "2026-11-25"
+    assert detail.json["total_minor"] == 25000
+    assert detail.json["items"] == []
+    assert detail.json["extraction_candidate"]["items"][0] == {
+        "name": "BERAS",
+        "qty_milli": 2000,
+        "unit_price_minor": 12500,
+        "amount_minor": 25000,
+        "line_ids": ["l3"],
+        "confidence": 0.94,
+    }
+    assert "LLM_UNAVAILABLE" not in detail.json["issues"]

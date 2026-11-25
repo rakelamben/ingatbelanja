@@ -164,16 +164,14 @@ describe("ReceiptCapturePage", () => {
     }, { timeout: 3000 });
   });
 
-  it("shows a clear recovery message when camera permission is denied", async () => {
+  it("keeps camera activation available when camera permission is denied", async () => {
     webcamState.permissionDenied = true;
     provideCamera();
     renderCapturePage();
 
     fireEvent.click(await screen.findByRole("button", { name: "Aktifkan Kamera" }));
-    expect(
-      await screen.findByText(/Izin kamera ditolak.*galeri/i),
-    ).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Aktifkan Kamera" })).toBeTruthy();
+    expect(screen.queryByTestId("webcam-preview")).toBeNull();
   });
 
   it("enables flash only when the active camera reports torch support", async () => {
@@ -191,22 +189,6 @@ describe("ReceiptCapturePage", () => {
       expect(
         screen.getByRole("button", { name: "Matikan flash" }).getAttribute("aria-pressed"),
       ).toBe("true");
-    });
-  });
-
-  it("switches to the next available camera device", async () => {
-    provideCamera({ deviceIds: ["camera-1", "camera-2"] });
-    renderCapturePage();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Aktifkan Kamera" }));
-    await screen.findByTestId("webcam-preview");
-    const switchButton = await screen.findByRole("button", { name: "Ganti kamera" });
-    await waitFor(() => expect((switchButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(switchButton);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("webcam-preview").getAttribute("data-video-constraints"))
-        .toContain("camera-2");
     });
   });
 });

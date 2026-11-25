@@ -1,3 +1,5 @@
+import json
+
 from app import create_app
 from app.config import Settings
 from app.db import connect, migrate
@@ -69,6 +71,43 @@ def test_detail_patch_stale_delete_restore_and_report(tmp_path):
     assert deleted.status_code == 204
     assert hidden.status_code == 404
     assert restored.status_code == 200
+
+
+def test_receipt_detail_returns_the_latest_extraction_candidate(tmp_path):
+    app = make_app(tmp_path)
+    client, csrf, ledger_id = register(app)
+    receipt = client.post(
+        f"/api/v1/ledgers/{ledger_id}/receipts/manual",
+        json={"purchased_on": "2026-11-19", "amount_minor": 50000, "merchant_name": "Pasar"},
+        headers={"X-CSRF-Token": csrf},
+    ).json
+    older_candidate = {"merchant": "Toko Lama", "items": []}
+    latest_candidate = {
+        "merchant": "Toko Baru",
+        "purchased_on": "2026-11-19",
+        "total_minor": 50000,
+        "items": [{"name": "Beras", "amount_minor": 50000, "line_ids": ["r1"]}],
+        "issues": [],
+    }
+
+    connection = connect(app.config["SETTINGS"].database_path)
+    try:
+        connection.executemany(
+            "INSERT INTO extraction_runs(id, receipt_id, attempt, pipeline_version, rule_candidate, created_at) "
+            "VALUES (?, ?, ?, 'test', ?, ?)",
+            [
+                ("run-1", receipt["id"], 1, json.dumps(older_candidate), "2026-11-19T10:00:00Z"),
+                ("run-2", receipt["id"], 2, json.dumps(latest_candidate), "2026-11-19T11:00:00Z"),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    response = client.get(f"/api/v1/receipts/{receipt['id']}")
+
+    assert response.status_code == 200
+    assert response.json["extraction_candidate"] == latest_candidate
 
 
 def test_recent_items_are_ordered_by_input_time_and_include_category(tmp_path):

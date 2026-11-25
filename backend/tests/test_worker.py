@@ -121,6 +121,46 @@ def test_paddle_engine_disables_mkldnn(monkeypatch):
     engine._load()
 
     assert observed["enable_mkldnn"] is False
+    assert observed["lang"] == "en"
+    assert observed["use_doc_orientation_classify"] is False
+    assert observed["use_doc_unwarping"] is False
+
+
+def test_paddle_engine_enables_document_preprocessing_when_configured(monkeypatch):
+    observed = {}
+    paddleocr = ModuleType("paddleocr")
+    paddleocr.PaddleOCR = lambda **kwargs: observed.update(kwargs)
+    monkeypatch.setitem(sys.modules, "paddleocr", paddleocr)
+
+    PaddleOcrEngine(Settings(ocr_doc_preprocess=True, ocr_cpu_threads=4))._load()
+
+    assert observed["use_doc_orientation_classify"] is True
+    assert observed["use_doc_unwarping"] is True
+    assert observed["cpu_threads"] == 4
+
+
+def test_paddle_engine_assigns_unique_line_ids_per_detected_line(monkeypatch, tmp_path):
+    class FakePaddle:
+        def predict(self, _path):
+            return [
+                {
+                    "rec_texts": ["TOKO BERKAH", "BERAS 25.000", "TOTAL 25.000"],
+                    "rec_scores": [0.98, 0.91, 0.99],
+                    "rec_polys": [
+                        [[0, 0], [100, 0], [100, 10], [0, 10]],
+                        [[0, 20], [100, 20], [100, 30], [0, 30]],
+                        [[0, 40], [100, 40], [100, 50], [0, 50]],
+                    ],
+                }
+            ]
+
+    paddleocr = ModuleType("paddleocr")
+    paddleocr.PaddleOCR = lambda **_kwargs: FakePaddle()
+    monkeypatch.setitem(sys.modules, "paddleocr", paddleocr)
+
+    lines = PaddleOcrEngine(Settings()).read(tmp_path / "receipt.jpg")
+
+    assert [line.id for line in lines] == ["o1", "o2", "o3"]
 
 
 def test_worker_passes_configured_engine_to_receipt_extraction(monkeypatch, tmp_path):
@@ -141,9 +181,13 @@ def test_worker_passes_configured_engine_to_receipt_extraction(monkeypatch, tmp_
                 "attempts": 1,
             }
 
-    def fake_extract(database_path, storage_dir, receipt_id, *, engine):
+    def fake_extract(database_path, storage_dir, receipt_id, *, engine, min_mean_conf):
         observed.update(
-            database_path=database_path, storage_dir=storage_dir, receipt_id=receipt_id, engine=engine
+            database_path=database_path,
+            storage_dir=storage_dir,
+            receipt_id=receipt_id,
+            engine=engine,
+            min_mean_conf=min_mean_conf,
         )
 
     monkeypatch.setattr("app.worker.build_ocr_engine", lambda _settings: engine)
@@ -154,3 +198,4 @@ def test_worker_passes_configured_engine_to_receipt_extraction(monkeypatch, tmp_
     assert worker.run_once() is True
     assert observed["engine"] is engine
     assert observed["receipt_id"] == "receipt-1"
+    assert observed["min_mean_conf"] == settings.ocr_mean_conf_min

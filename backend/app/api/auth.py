@@ -22,7 +22,8 @@ from ..security import (
 from ..utils import new_id, utc_now
 
 auth = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
-limiter = RateLimiter()
+def _limiter() -> RateLimiter:
+    return current_app.extensions["rate_limiter"]
 
 
 class RegisterRequest(BaseModel):
@@ -82,7 +83,7 @@ def register():
     settings = current_app.config["SETTINGS"]
     if not settings.allow_registration:
         raise ProblemError(403, "REGISTRATION_DISABLED", "Registration is disabled")
-    limiter.check(f"register:{request.remote_addr}", 10)
+    _limiter().check(f"register:{request.remote_addr}", 10)
     body = json_body(RegisterRequest)
     username_norm = validate_username(body.username)
     validate_password(body.password)
@@ -132,7 +133,7 @@ def register():
 
 @auth.post("/login")
 def login():
-    limiter.check(f"login:{request.remote_addr}", 10)
+    _limiter().check(f"login:{request.remote_addr}", 10)
     body = json_body(LoginRequest)
     username_norm = validate_username(body.username)
     settings = current_app.config["SETTINGS"]
